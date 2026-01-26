@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // For Keyboard
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'database_helper.dart';
@@ -9,263 +11,238 @@ class ScannerScreen extends StatefulWidget {
   _ScannerScreenState createState() => _ScannerScreenState();
 }
 
-class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserver {
-  bool _isScanning = true;
-  String _message = "Ready to Scan";
+class _ScannerScreenState extends State<ScannerScreen> {
+  String _message = "Starting System...";
   Color _bgColor = Colors.white;
   String? _hallDisplay;
+  bool _isProcessing = false;
 
-  // Controller with camera selector
-  final MobileScannerController cameraController = MobileScannerController(
-    detectionSpeed: DetectionSpeed.noDuplicates,
-    returnImage: false,
-    facing: CameraFacing.back, // Default to back camera
-    torchEnabled: false,
-  );
+  Process? _pythonProcess;
+  MobileScannerController? _mobileController;
+  final FocusNode _keyboardFocus = FocusNode(); // To capture Space Bar
 
   @override
   void initState() {
     super.initState();
-    _requestStoragePermission();
+    _checkPermissions();
+    if (Platform.isWindows) {
+      _startPythonScanner();
+    } else {
+      _mobileController = MobileScannerController(
+        detectionSpeed: DetectionSpeed.noDuplicates,
+        returnImage: false,
+      );
+    }
   }
 
-  Future<void> _requestStoragePermission() async {
-    await [Permission.storage, Permission.manageExternalStorage, Permission.camera].request();
+  Future<void> _checkPermissions() async {
+    if (Platform.isAndroid || Platform.isIOS) {
+      await Permission.camera.request();
+    }
   }
 
   @override
   void dispose() {
-    cameraController.dispose();
+    _mobileController?.dispose();
+    _pythonProcess?.kill();
+    _keyboardFocus.dispose();
     super.dispose();
   }
 
-  // --- CAMERA SWITCH LOGIC ---
-  void _switchCamera() {
-    cameraController.switchCamera();
-  }
+  // --- PYTHON LOGIC ---
+  void _startPythonScanner() async {
+    _pythonProcess?.kill(); // Ensure only one runs
+    if (!mounted) return;
+    setState(() { _message = "Launching Camera Feed..."; });
 
-  void _handleScan(BarcodeCapture capture) async {
-    if (!_isScanning) return;
+    try {
+      _pythonProcess = await Process.start('python', ['scanner.py']);
 
-    final List<Barcode> barcodes = capture.barcodes;
-    for (final barcode in barcodes) {
-      if (barcode.rawValue == null) continue;
-
-      setState(() { _isScanning = false; _message = "Processing..."; });
-
-      try {
-        String rawQrData = barcode.rawValue!;
-        String staffId;
-
-        // --- ROBUST PARSING LOGIC ---
-        try {
-          Map<String, dynamic> data = jsonDecode(rawQrData);
-          if (data.containsKey('id')) {
-            staffId = data['id'];
-          } else if (data.containsKey('n')) {
-            staffId = data['n'];
-          } else {
-            staffId = rawQrData;
-          }
-        } catch (e) {
-          staffId = rawQrData;
+      _pythonProcess!.stdout.transform(utf8.decoder).listen((data) {
+        if (data.contains("CAMERA_READY")) {
+          if (mounted) setState(() { _message = "Camera Active\nScanning for IDs..."; });
         }
-
-        staffId = staffId.trim().toUpperCase();
-
-        var result = await DatabaseHelper().checkStaffStatus(staffId);
-
-        if (result != null) {
-          if (result['type'] == 'LOGGED') {
-            _showResultScreen(
-                color: Colors.blue,
-                title: "ALREADY IN",
-                subtitle: "Hall ${result['hall_no']}: ${result['staff_name']}"
-            );
-          } else {
-            String hall = result['hall_no'];
-            String name = result['staff_name'];
-            await DatabaseHelper().markAttendance(staffId, name, hall);
-
-            _showResultScreen(
-                color: Colors.green,
-                title: "HALL $hall",
-                subtitle: "Welcome, $name"
-            );
-          }
-        } else {
-          _showSubstitutionDialog(staffId);
+        else if (data.contains("QR_DATA:")) {
+          String cleanCode = data.split("QR_DATA:")[1].trim();
+          _handleCodeFound(cleanCode);
         }
-
-      } catch (e) {
-        _showResultScreen(color: Colors.red, title: "ERROR", subtitle: "Scan failed: $e");
-      }
-      break;
+      });
+    } catch (e) {
+      if (mounted) setState(() { _message = "Error: Could not launch scanner.py"; });
     }
   }
 
-  void _showSubstitutionDialog(String substituteId) async {
-    TextEditingController nameController = TextEditingController();
-    List<Map<String, dynamic>> pendingList = await DatabaseHelper().getPendingHalls();
+  // --- TRIGGER NEXT STUDENT ---
+  void _triggerNextScan() {
+    if (Platform.isWindows && _pythonProcess != null) {
+      // Send "NEXT" command to Python script
+      _pythonProcess!.stdin.writeln("NEXT");
+    }
+
+    setState(() {
+      _isProcessing = false;
+      _bgColor = Colors.white;
+      _hallDisplay = null;
+      _message = Platform.isWindows ? "Camera Active\nScanning..." : "Ready to Scan";
+    });
+
+    // Ensure focus returns to the page so spacebar works next time too
+    FocusScope.of(context).requestFocus(_keyboardFocus);
+  }
+
+  // --- MOBILE SCANNER LOGIC ---
+  void _handleMobileScan(BarcodeCapture capture) {
+    if (_isProcessing) return;
+    for (final barcode in capture.barcodes) {
+      if (barcode.rawValue != null) {
+        _handleCodeFound(barcode.rawValue!);
+        break;
+      }
+    }
+  }
+
+  // --- HANDLE SCAN ---
+  void _handleCodeFound(String rawCode) async {
+    if (_isProcessing) return;
+
+    setState(() { _isProcessing = true; _message = "Fetching Data..."; });
+    // Request focus so we can capture the Space Bar immediately
+    FocusScope.of(context).requestFocus(_keyboardFocus);
+
+    try {
+      String staffId = rawCode;
+      try {
+        Map<String, dynamic> data = jsonDecode(rawCode);
+        staffId = data['id'] ?? data['n'] ?? rawCode;
+      } catch (e) {}
+      staffId = staffId.trim().toUpperCase();
+
+      var result = await DatabaseHelper().checkStaffStatus(staffId);
+
+      if (result != null) {
+        if (result['type'] == 'LOGGED') {
+          _showResult(Colors.blue, "ALREADY IN", "Hall ${result['hall_no']}: ${result['staff_name']}");
+        } else {
+          await DatabaseHelper().markAttendance(staffId, result['staff_name'], result['hall_no']);
+          _showResult(Colors.green, "HALL ${result['hall_no']}", result['staff_name']);
+        }
+      } else {
+        _showSubstitutionDialog(staffId);
+      }
+    } catch (e) {
+      _showResult(Colors.red, "ERROR", e.toString());
+    }
+  }
+
+  void _showResult(Color color, String title, String subtitle) {
+    if (!mounted) return;
+    setState(() { _bgColor = color; _hallDisplay = title; _message = subtitle; });
+    // Note: No timer here anymore. User controls it via Space Bar.
+  }
+
+  void _showSubstitutionDialog(String id) async {
+    var pending = await DatabaseHelper().getPendingHalls();
+    TextEditingController nameCtrl = TextEditingController();
 
     showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (context) {
-          return AlertDialog(
-            title: Text("Staff Not Allotted"),
-            content: Container(
-              width: double.maxFinite,
-              height: 400,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text("ID: $substituteId is not in schedule.", style: TextStyle(color: Colors.red)),
-                  SizedBox(height: 10),
-                  TextField(
-                    controller: nameController,
-                    decoration: InputDecoration(labelText: "Enter Staff Name", border: OutlineInputBorder()),
-                  ),
-                  SizedBox(height: 10),
-                  Text("Select replacement slot:", style: TextStyle(fontWeight: FontWeight.bold)),
-                  Divider(),
-                  Expanded(
-                    child: pendingList.isEmpty
-                        ? Center(child: Text("No pending slots."))
-                        : ListView.builder(
-                      itemCount: pendingList.length,
-                      itemBuilder: (context, index) {
-                        var item = pendingList[index];
-                        return ListTile(
-                          dense: true,
-                          title: Text("Hall ${item['hall_no']}"),
-                          subtitle: Text("Absent: ${item['staff_name']}"),
-                          trailing: Icon(Icons.swap_horiz, color: Colors.orange),
-                          onTap: () async {
-                            if (nameController.text.isEmpty) return;
-                            await DatabaseHelper().markSubstitution(
-                                substituteId, nameController.text.trim(), item['hall_no']
-                            );
-                            Navigator.pop(context);
-                            _showResultScreen(color: Colors.orange, title: "HALL ${item['hall_no']}", subtitle: "Replaced ${item['staff_name']}");
-                          },
-                        );
-                      },
-                    ),
+        builder: (ctx) => AlertDialog(
+          title: Text("Substitute Entry"),
+          content: Container(
+            width: 400, height: 300,
+            child: Column(children: [
+              Text("ID $id not in schedule."),
+              TextField(controller: nameCtrl, decoration: InputDecoration(labelText: "Enter Student Name")),
+              Expanded(child: ListView.builder(
+                  itemCount: pending.length,
+                  itemBuilder: (c, i) => ListTile(
+                    title: Text("Hall ${pending[i]['hall_no']}"),
+                    subtitle: Text("Absent: ${pending[i]['staff_name']}"),
+                    onTap: () async {
+                      await DatabaseHelper().markSubstitution(id, nameCtrl.text, pending[i]['hall_no']);
+                      Navigator.pop(ctx);
+                      _showResult(Colors.orange, "REPLACED", "Hall ${pending[i]['hall_no']}");
+                    },
                   )
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(onPressed: () { Navigator.pop(context); _resetScanner(); }, child: Text("Cancel"))
-            ],
-          );
-        }
+              ))
+            ]),
+          ),
+          actions: [
+            TextButton(onPressed: () {Navigator.pop(ctx); _triggerNextScan();}, child: Text("Cancel"))
+          ],
+        )
     );
-  }
-
-  void _showResultScreen({required Color color, required String title, required String subtitle}) {
-    setState(() {
-      _bgColor = color;
-      _hallDisplay = title;
-      _message = subtitle;
-    });
-  }
-
-  void _resetScanner() {
-    setState(() {
-      _isScanning = true;
-      _bgColor = Colors.white;
-      _hallDisplay = null;
-      _message = "Ready to Scan";
-    });
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_hallDisplay != null) {
-      return Scaffold(
+    // WRAP EVERYTHING IN KEYBOARD LISTENER
+    return RawKeyboardListener(
+      focusNode: _keyboardFocus,
+      autofocus: true,
+      onKey: (RawKeyEvent event) {
+        if (event is RawKeyDownEvent) {
+          if (event.logicalKey == LogicalKeyboardKey.space) {
+            // Only trigger if we are currently showing a result
+            if (_hallDisplay != null) {
+              _triggerNextScan();
+            }
+          }
+        }
+      },
+      child: Scaffold(
         backgroundColor: _bgColor,
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(20.0),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.check_circle, color: Colors.white, size: 80),
-                SizedBox(height: 20),
-                Text(_hallDisplay!, style: TextStyle(fontSize: 60, fontWeight: FontWeight.bold, color: Colors.white), textAlign: TextAlign.center),
-                SizedBox(height: 20),
-                Text(_message, style: TextStyle(fontSize: 24, color: Colors.white), textAlign: TextAlign.center),
-                SizedBox(height: 60),
-                SizedBox(width: double.infinity, height: 70, child: ElevatedButton.icon(onPressed: _resetScanner, icon: Icon(Icons.qr_code_scanner, color: _bgColor, size: 30), label: Text("RETURN TO SCANNER", style: TextStyle(color: _bgColor, fontSize: 20, fontWeight: FontWeight.bold)), style: ElevatedButton.styleFrom(backgroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15))))),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-    return Scaffold(
-      appBar: AppBar(
-        title: Text("Scanner Mode"),
-        actions: [
-          // Optional Header Action
-          IconButton(
-            icon: Icon(Icons.cameraswitch),
-            onPressed: _switchCamera,
-          ),
-        ],
+        appBar: _hallDisplay == null ? AppBar(title: Text("Kiosk Mode")) : null, // Hide AppBar on result screen for full immersion
+        body: _hallDisplay != null
+            ? _buildResultUI()
+            : (Platform.isWindows ? _buildWindowsUI() : _buildMobileUI()),
       ),
-      body: Column(
+    );
+  }
+
+  Widget _buildResultUI() {
+    return InkWell(
+      onTap: _triggerNextScan, // Tap also works
+      child: Center(child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Expanded(
-            flex: 2,
-            child: Stack(
-              children: [
-                MobileScanner(
-                  controller: cameraController,
-                  onDetect: _handleScan,
-                ),
-                // FLOATING SWITCH CAMERA BUTTON
-                Positioned(
-                  bottom: 20,
-                  right: 20,
-                  child: FloatingActionButton(
-                    backgroundColor: Colors.white.withOpacity(0.8),
-                    onPressed: _switchCamera,
-                    child: Icon(Icons.cameraswitch, color: Colors.black87),
-                  ),
-                ),
-                // TORCH BUTTON (Bonus)
-                Positioned(
-                  bottom: 20,
-                  left: 20,
-                  child: FloatingActionButton(
-                    backgroundColor: Colors.white.withOpacity(0.8),
-                    onPressed: () => cameraController.toggleTorch(),
-                    child: Icon(Icons.flash_on, color: Colors.black87),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            flex: 1,
-            child: Container(
-              color: Colors.black87,
-              width: double.infinity,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text("Show QR Code", style: TextStyle(color: Colors.white, fontSize: 20)),
-                  SizedBox(height: 10),
-                  Text(_message, style: TextStyle(color: Colors.grey)),
-                ],
-              ),
-            ),
+          Icon(Icons.check_circle, color: Colors.white, size: 100),
+          Text(_hallDisplay!, style: TextStyle(fontSize: 80, color: Colors.white, fontWeight: FontWeight.bold)),
+          SizedBox(height: 20),
+          Text(_message, style: TextStyle(fontSize: 32, color: Colors.white70)),
+          SizedBox(height: 50),
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(20)),
+            child: Text("Press SPACE BAR for Next", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
           )
         ],
-      ),
+      )),
+    );
+  }
+
+  Widget _buildMobileUI() {
+    return Column(children: [
+      Expanded(flex: 2, child: MobileScanner(
+          controller: _mobileController!,
+          onDetect: _handleMobileScan
+      )),
+      Expanded(flex: 1, child: Center(child: Text(_message)))
+    ]);
+  }
+
+  Widget _buildWindowsUI() {
+    return Center(
+      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+        Icon(Icons.monitor, size: 100, color: Colors.indigo),
+        SizedBox(height: 30),
+        Text("SYSTEM ACTIVE", style: TextStyle(fontSize: 40, fontWeight: FontWeight.w900, letterSpacing: 2)),
+        SizedBox(height: 20),
+        Text(_message, style: TextStyle(fontSize: 18, color: Colors.grey)),
+        SizedBox(height: 40),
+        ElevatedButton(onPressed: _startPythonScanner, child: Text("Relaunch Camera"))
+      ]),
     );
   }
 }

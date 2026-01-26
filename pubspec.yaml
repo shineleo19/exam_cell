@@ -1,14 +1,16 @@
 name: exam_cell
-description: "A new Flutter project."
+description: "Exam Controller Kiosk"
 publish_to: 'none'
 version: 1.0.0+1
 
 environment:
-  sdk: ^3.9.0
+  sdk: ^3.0.0
 
 dependencies:
   flutter:
     sdk: flutter
+
+  # Utilities
   permission_handler: ^11.3.0
   path_provider: ^2.1.2
   file_picker: ^8.0.0
@@ -17,32 +19,20 @@ dependencies:
   # Database
   sqflite: ^2.3.2
   path: ^1.9.0
-  sqflite_common_ffi: ^2.3.2
+  sqflite_common_ffi: ^2.3.2 # Critical for Windows DB
 
-  # Scanner
+  # Scanner (Mobile Only)
   mobile_scanner: ^5.0.0
 
+  # Icons
   cupertino_icons: ^1.0.8
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^5.0.0
-
-  # 1. ADD THIS DEPENDENCY
-  flutter_launcher_icons: ^0.13.1
-  rename: ^3.1.0
+  flutter_lints: ^3.0.0
 
 flutter:
   uses-material-design: true
-
-  # 2. ADD YOUR LOGO HERE (Fixed indentation)
   assets:
     - assets/logo.jpeg
-
-# 3. ADD THIS CONFIGURATION BLOCK AT THE END
-flutter_launcher_icons:
-  android: "launcher_icon"
-  ios: true
-  image_path: "assets/logo.jpeg"
-  min_sdk_android: 21 # Support newer Androi  d adaptive icons
