@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:spreadsheet_decoder/spreadsheet_decoder.dart';
 import 'package:path_provider/path_provider.dart';
@@ -18,6 +19,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _isLoading = false;
   int _recordCount = 0;
 
+  // State for Checkmarks
+  bool _hasMaster = false;
+  bool _hasSchedule = false;
+
   @override
   void initState() {
     super.initState();
@@ -25,10 +30,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _refreshStats() async {
-    final count = await DatabaseHelper().getPendingCount();
+    final pending = await DatabaseHelper().getPendingCount();
+    final masterCount = await DatabaseHelper().getMasterCount();
+    final dailyCount = await DatabaseHelper().getDailyCount();
+
     setState(() {
-      _recordCount = count;
-      _status = _recordCount > 0 ? "Ready for Exam" : "No Daily Schedule Found";
+      _hasMaster = masterCount > 0;
+      _hasSchedule = dailyCount > 0;
+      _recordCount = pending; // Pending count is useful for "Candidates Left"
+      _status = _hasSchedule ? "Ready for Exam" : "No Daily Schedule Found";
     });
   }
 
@@ -92,7 +102,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             imported++;
           }
         }
-
+        await _refreshStats();
         setState(() { _isLoading = false; _status = "Master List: $imported Staff"; });
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Master List Updated: $imported records"), backgroundColor: Colors.green));
       }
@@ -214,7 +224,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         csvBuffer.writeln("${log['staff_id']},${log['staff_name']},${log['hall_no']},$formattedTime,$status");
       }
 
-      String fileName = "Attendance Log.csv";
+      String timestamp = DateTime.now().toString().replaceAll(":", "-").replaceAll(" ", "_").split(".")[0];
+      String fileName = "Attendance_Log_$timestamp.csv";
 
       if (Platform.isAndroid || Platform.isIOS) {
         if (await Permission.storage.request().isGranted || await Permission.manageExternalStorage.request().isGranted) {
@@ -269,7 +280,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   // ==========================================================
-  //  5. MANUAL ENTRY SYSTEM (UPDATED WITH RESOLUTION LOGIC)
+  //  5. MANUAL ENTRY SYSTEM
   // ==========================================================
 
   void _showManualEntryDialog() {
@@ -339,11 +350,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
           await _showResultAndReopen("ALREADY IN", "${result['staff_name']} is in Hall ${result['hall_no']}", Colors.blue);
 
         } else if (result['type'] == 'UNKNOWN_ID') {
-          Navigator.pop(ctx); // Close Manual Dialog to show Unknown Dialog
+          Navigator.pop(ctx);
           _showUnknownIdOptions(id);
 
         } else if (result['type'] == 'NOT_ALLOTTED') {
-          Navigator.pop(ctx); // Close Manual Dialog to show Mismatch Dialog
+          Navigator.pop(ctx);
           _showNameMismatchDialog(id, result['staff_name']);
         }
       }
@@ -351,18 +362,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _showErrorDialog("Error: $e");
     }
 
-    // Clear text and refocus for next entry (If not popped)
     controller.clear();
     focusNode.requestFocus();
   }
 
-  // --- HELPER: Shows Result, then Re-opens Manual Entry ---
   Future<void> _showResultAndReopen(String title, String subtitle, Color color) async {
     await Navigator.push(context, MaterialPageRoute(builder: (c) => FullScreenResultScreen(title: title, subtitle: subtitle, bgColor: color)));
-    // No need to reopen manually if we didn't close the dialog, but if we did (for Unknown/Mismatch resolution), the resolution functions handle reopening.
   }
 
-  // --- RESOLUTION DIALOG 1: UNKNOWN ID (REVAMPED UI) ---
+  // --- RESOLUTION DIALOG 1: UNKNOWN ID (Updated UI) ---
   void _showUnknownIdOptions(String id) async {
     List<String> allNames = await DatabaseHelper().getAllAvailableNames();
     String? selectedName;
@@ -371,12 +379,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     showDialog(context: context, barrierDismissible: false, builder: (ctx) => AlertDialog(
       title: Text("Unknown ID Detected", style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
       content: Container(
-        width: 700, // WIDER
-        height: 550, // TALLER
+        width: 700,
+        height: 550,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Warning Banner
             Container(
               padding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
               decoration: BoxDecoration(color: Colors.amber[50], borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.amber.shade200)),
@@ -395,55 +402,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ),
             SizedBox(height: 30),
-
-            // Option 1
             Text("Option 1: Link to Existing Staff", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.indigo)),
             SizedBox(height: 10),
             Autocomplete<String>(
               optionsBuilder: (v) => v.text == '' ? const Iterable<String>.empty() : allNames.where((opt) => opt.toLowerCase().contains(v.text.toLowerCase())),
               onSelected: (s) => selectedName = s,
-              fieldViewBuilder: (ctx, ctrl, focus, submit) => TextField(controller: ctrl, focusNode: focus, decoration: InputDecoration(hintText: "Search Name to Link...", prefixIcon: Icon(Icons.link), border: OutlineInputBorder(), filled: true, fillColor: Colors.grey[50])),
+              fieldViewBuilder: (ctx, ctrl, focus, submit) => TextField(controller: ctrl, focusNode: focus, decoration: InputDecoration(hintText: "Link to Name", prefixIcon: Icon(Icons.link), border: OutlineInputBorder(), filled: true, fillColor: Colors.grey[50])),
             ),
-
             SizedBox(height: 20),
             Row(children: [Expanded(child: Divider()), Padding(padding: EdgeInsets.symmetric(horizontal: 10), child: Text("OR", style: TextStyle(color: Colors.grey))), Expanded(child: Divider())]),
             SizedBox(height: 20),
-
-            // Option 2
             Text("Option 2: Register New Name", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.teal)),
             SizedBox(height: 10),
             TextField(controller: manualController, decoration: InputDecoration(hintText: "Enter Full Name", prefixIcon: Icon(Icons.person_add), border: OutlineInputBorder(), filled: true, fillColor: Colors.grey[50]), onChanged: (v) => selectedName = null),
-
             Spacer(),
-
-            // Action Buttons
             Row(
               children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                      icon: Icon(Icons.swap_horiz),
-                      label: Text("REPLACE ABSENT STAFF"),
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white, padding: EdgeInsets.symmetric(vertical: 20)),
-                      onPressed: () { Navigator.pop(ctx); _showSubstitutionSelector(id); }
-                  ),
-                ),
+                Expanded(child: ElevatedButton.icon(icon: Icon(Icons.swap_horiz), label: Text("REPLACE ABSENT STAFF"), style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white, padding: EdgeInsets.symmetric(vertical: 20)), onPressed: () { Navigator.pop(ctx); _showSubstitutionSelector(id); })),
                 SizedBox(width: 20),
-                Expanded(
-                  child: ElevatedButton.icon(
-                      icon: Icon(Icons.save),
-                      label: Text("LINK & SAVE"),
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white, padding: EdgeInsets.symmetric(vertical: 20)),
-                      onPressed: () async {
-                        String name = manualController.text.isNotEmpty ? manualController.text : (selectedName ?? "");
-                        if (name.isNotEmpty) {
-                          await DatabaseHelper().linkStaff(id, name);
-                          Navigator.pop(ctx);
-                          // Re-process manually by reopening the dialog
-                          _showManualEntryDialog();
-                        }
-                      }
-                  ),
-                ),
+                Expanded(child: ElevatedButton.icon(icon: Icon(Icons.save), label: Text("LINK & SAVE"), style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white, padding: EdgeInsets.symmetric(vertical: 20)), onPressed: () async {
+                  String name = manualController.text.isNotEmpty ? manualController.text : (selectedName ?? "");
+                  if (name.isNotEmpty) { await DatabaseHelper().linkStaff(id, name); Navigator.pop(ctx); _showManualEntryDialog(); }
+                })),
               ],
             )
           ],
@@ -498,16 +478,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // --- RESOLUTION DIALOG 3: SUBSTITUTE (REVAMPED UI) ---
+  // --- RESOLUTION DIALOG 3: SUBSTITUTE (UPDATED UI) ---
   void _showSubstitutionSelector(String id) async {
-    // 1. Fetch absent staff
     List<Map<String, dynamic>> pending = await DatabaseHelper().getPendingHalls();
-
-    // 2. Controllers
     TextEditingController nameCtrl = TextEditingController();
     TextEditingController searchCtrl = TextEditingController();
-
-    // 3. Filterable list
     List<Map<String, dynamic>> filteredPending = List.from(pending);
 
     showDialog(
@@ -515,40 +490,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
         barrierDismissible: false,
         builder: (ctx) => StatefulBuilder(
             builder: (context, setStateDialog) => AlertDialog(
-                title: Text("Replace Absent Staff", style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+                title: Text("Replace Staff", style: TextStyle(fontSize: 28)),
                 content: Container(
-                    width: 700, // Wide like the Manual Entry screen
-                    height: 600, // Tall enough for the list
+                    width: 600,
+                    height: 500,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // SECTION 1: YOUR NAME
-                        Text("1. Enter New Staff Name", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey[700])),
                         SizedBox(height: 10),
                         TextField(
                             controller: nameCtrl,
-                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                            style: TextStyle(fontSize: 18),
                             decoration: InputDecoration(
-                                hintText: "Your Name",
-                                border: OutlineInputBorder(),
-                                prefixIcon: Icon(Icons.person_add, color: Colors.indigo),
-                                filled: true,
-                                fillColor: Colors.grey[50]
+                                hintText: "New Staff Name",
+                                hintStyle: TextStyle(color: Colors.grey),
+                                border: UnderlineInputBorder(),
+                                contentPadding: EdgeInsets.only(bottom: 10)
                             )
                         ),
-
-                        SizedBox(height: 25), Divider(thickness: 1), SizedBox(height: 15),
-
-                        // SECTION 2: SEARCH
-                        Text("2. Select who you are replacing", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey[700])),
-                        SizedBox(height: 10),
+                        SizedBox(height: 25),
                         TextField(
                           controller: searchCtrl,
                           decoration: InputDecoration(
-                              hintText: "Search Name or Hall...",
-                              prefixIcon: Icon(Icons.search),
-                              border: OutlineInputBorder(),
-                              contentPadding: EdgeInsets.all(15)
+                              hintText: "Search Hall or Staff...",
+                              prefixIcon: Icon(Icons.search, size: 20),
+                              border: OutlineInputBorder(borderSide: BorderSide.none),
+                              filled: true,
+                              fillColor: Colors.grey[100],
+                              contentPadding: EdgeInsets.symmetric(vertical: 0)
                           ),
                           onChanged: (val) {
                             setStateDialog(() {
@@ -560,55 +529,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           },
                         ),
                         SizedBox(height: 15),
-
-                        // SECTION 3: LIST
                         Expanded(
-                            child: filteredPending.isEmpty
-                                ? Center(child: Text("No absent staff found matching '${searchCtrl.text}'", style: TextStyle(color: Colors.grey)))
-                                : ListView.builder(
+                            child: ListView.builder(
                                 itemCount: filteredPending.length,
-                                itemBuilder: (c, i) => Card(
-                                  elevation: 3,
-                                  margin: EdgeInsets.only(bottom: 10),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                  child: ListTile(
-                                    contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                                    leading: CircleAvatar(
-                                        radius: 25,
-                                        backgroundColor: Colors.red[50],
-                                        child: Text(
-                                            "${filteredPending[i]['hall_no']}",
-                                            style: TextStyle(color: Colors.red[800], fontWeight: FontWeight.bold, fontSize: 12)
-                                        )
-                                    ),
-                                    title: Text("Hall ${filteredPending[i]['hall_no']}", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                                    subtitle: RichText(
-                                      text: TextSpan(
-                                          style: TextStyle(color: Colors.black87, fontSize: 14),
-                                          children: [
-                                            TextSpan(text: "Replacing: "),
-                                            TextSpan(text: filteredPending[i]['staff_name'], style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red[700])),
-                                          ]
-                                      ),
-                                    ),
-                                    trailing: ElevatedButton.icon(
-                                        icon: Icon(Icons.swap_horiz, size: 18),
-                                        label: Text("REPLACE"),
-                                        style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, foregroundColor: Colors.white, padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12)),
-                                        onPressed: () async {
-                                          if (nameCtrl.text.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Enter YOUR name first!"))); return; }
-
-                                          // PERFORM SWAP
-                                          await DatabaseHelper().substituteAndLink(id, nameCtrl.text, filteredPending[i]['hall_no']);
-
-                                          Navigator.pop(ctx); // Close Dialog
-
-                                          // SHOW RESULT
-                                          await _showResultAndReopen("REPLACED", "Hall ${filteredPending[i]['hall_no']}", Colors.orange);
-
-                                          // RE-OPEN MANUAL ENTRY
-                                          _showManualEntryDialog();
-                                        }
+                                itemBuilder: (c, i) => InkWell(
+                                  onTap: () async {
+                                    if (nameCtrl.text.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Please enter New Staff Name first!"))); return; }
+                                    await DatabaseHelper().substituteAndLink(id, nameCtrl.text, filteredPending[i]['hall_no']);
+                                    Navigator.pop(ctx);
+                                    await _showResultAndReopen("REPLACED", "Hall ${filteredPending[i]['hall_no']}", Colors.orange);
+                                    _showManualEntryDialog();
+                                  },
+                                  child: Container(
+                                    padding: EdgeInsets.symmetric(vertical: 12, horizontal: 10),
+                                    decoration: BoxDecoration(color: i == 0 ? Colors.grey[200] : Colors.transparent, borderRadius: BorderRadius.circular(5)),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text("Hall ${filteredPending[i]['hall_no']}", style: TextStyle(fontSize: 16, color: Colors.black87)),
+                                        SizedBox(height: 4),
+                                        Text("Replacing: ${filteredPending[i]['staff_name']}", style: TextStyle(fontSize: 14, color: Colors.grey[600])),
+                                      ],
                                     ),
                                   ),
                                 )
@@ -617,14 +558,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ],
                     )
                 ),
-                actionsPadding: EdgeInsets.all(20),
+                actionsPadding: EdgeInsets.only(right: 25, bottom: 20),
                 actions: [
                   TextButton(
                       onPressed: () {
                         Navigator.pop(ctx);
-                        _showManualEntryDialog(); // Go back to manual entry on cancel
+                        _showManualEntryDialog();
                       },
-                      child: Text("Cancel", style: TextStyle(fontSize: 18, color: Colors.grey))
+                      child: Text("Cancel", style: TextStyle(fontSize: 16, color: Colors.indigo, fontWeight: FontWeight.bold))
                   )
                 ]
             )
@@ -685,9 +626,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
               children: [
                 Text("Setup", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey[800])),
                 SizedBox(height: 15),
-                _buildActionCard(icon: Icons.people_alt, color: Colors.blueGrey, title: "1. Upload Master List", subtitle: "Map IDs to Names (One time setup)", onTap: _uploadMasterList),
+                _buildActionCard(icon: Icons.people_alt, color: Colors.blueGrey, title: "1. Upload Master List", subtitle: "Map IDs to Names (One time setup)", onTap: _uploadMasterList, isCompleted: _hasMaster),
                 SizedBox(height: 15),
-                _buildActionCard(icon: Icons.calendar_today, color: Colors.blueAccent, title: "2. Upload Daily Schedule", subtitle: "Import the messy duty list Excel", onTap: _uploadDailySchedule),
+                _buildActionCard(icon: Icons.calendar_today, color: Colors.blueAccent, title: "2. Upload Daily Schedule", subtitle: "Import the messy duty list Excel", onTap: _uploadDailySchedule, isCompleted: _hasSchedule),
                 SizedBox(height: 15),
                 _buildActionCard(icon: Icons.keyboard, color: Colors.purple, title: "3. Manual ID Entry", subtitle: "Type ID manually if QR is missing", onTap: _showManualEntryDialog),
                 SizedBox(height: 25),
@@ -717,7 +658,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildActionCard({required IconData icon, required Color color, required String title, required String subtitle, required VoidCallback onTap, bool isDestructive = false}) {
+  Widget _buildActionCard({required IconData icon, required Color color, required String title, required String subtitle, required VoidCallback onTap, bool isDestructive = false, bool isCompleted = false}) {
     return Container(
       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.08), blurRadius: 10, offset: Offset(0, 4))]),
       child: Material(
@@ -729,7 +670,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
             child: Row(
               children: [
-                Container(padding: EdgeInsets.all(12), decoration: BoxDecoration(color: isDestructive ? Colors.red[50] : color.withOpacity(0.1), borderRadius: BorderRadius.circular(12)), child: Icon(icon, color: color, size: 28)),
+                Stack(
+                  children: [
+                    Container(padding: EdgeInsets.all(12), decoration: BoxDecoration(color: isDestructive ? Colors.red[50] : color.withOpacity(0.1), borderRadius: BorderRadius.circular(12)), child: Icon(icon, color: color, size: 28)),
+                    if (isCompleted) Positioned(right: 0, bottom: 0, child: Container(padding: EdgeInsets.all(2), decoration: BoxDecoration(color: Colors.green, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 2)), child: Icon(Icons.check, color: Colors.white, size: 10)))
+                  ],
+                ),
                 SizedBox(width: 20),
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.grey[900])), SizedBox(height: 4), Text(subtitle, style: TextStyle(fontSize: 12, color: Colors.grey[500]))])),
                 Icon(Icons.chevron_right, color: Colors.grey[300]),
@@ -742,6 +688,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 }
 
+// --- FULL SCREEN RESULT (Wait for SPACE BAR) ---
 class FullScreenResultScreen extends StatefulWidget {
   final String title;
   final String subtitle;
@@ -753,30 +700,51 @@ class FullScreenResultScreen extends StatefulWidget {
 }
 
 class _FullScreenResultScreenState extends State<FullScreenResultScreen> {
+  final FocusNode _focusNode = FocusNode();
+
   @override
   void initState() {
     super.initState();
-    Future.delayed(Duration(seconds: 3), () {
-      if (mounted) Navigator.pop(context);
-    });
+    // Removed Auto-Close. Now waiting for Key Press.
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: widget.bgColor,
-      body: InkWell(
-        onTap: () => Navigator.pop(context),
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.check_circle, color: Colors.white, size: 120),
-              SizedBox(height: 30),
-              Text(widget.title, textAlign: TextAlign.center, style: TextStyle(fontSize: 90, color: Colors.white, fontWeight: FontWeight.bold)),
-              SizedBox(height: 20),
-              Text(widget.subtitle, textAlign: TextAlign.center, style: TextStyle(fontSize: 36, color: Colors.white70)),
-            ],
+    return RawKeyboardListener(
+      focusNode: _focusNode,
+      autofocus: true,
+      onKey: (event) {
+        if (event is RawKeyDownEvent && event.logicalKey == LogicalKeyboardKey.space) {
+          Navigator.pop(context);
+        }
+      },
+      child: Scaffold(
+        backgroundColor: widget.bgColor,
+        body: InkWell(
+          onTap: () => Navigator.pop(context),
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.check_circle, color: Colors.white, size: 120),
+                SizedBox(height: 30),
+                Text(widget.title, textAlign: TextAlign.center, style: TextStyle(fontSize: 90, color: Colors.white, fontWeight: FontWeight.bold)),
+                SizedBox(height: 20),
+                Text(widget.subtitle, textAlign: TextAlign.center, style: TextStyle(fontSize: 36, color: Colors.white70)),
+                SizedBox(height: 50),
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(20)),
+                  child: Text("Press SPACE BAR to Continue", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                )
+              ],
+            ),
           ),
         ),
       ),

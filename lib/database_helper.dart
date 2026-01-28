@@ -24,10 +24,7 @@ class DatabaseHelper {
     String path = join(documentsDirectory.path, 'exam_admin_v14.db');
 
     var db = await openDatabase(path, version: 1, onCreate: _onCreate);
-
-    // Auto-seed from assets if empty
     await _seedDatabaseIfEmpty(db);
-
     return db;
   }
 
@@ -38,20 +35,24 @@ class DatabaseHelper {
     await db.execute('CREATE TABLE staff_aliases(master_name TEXT, alias_name TEXT)');
   }
 
-  // --- 1. LATE ENTRY LOGIC ---
+  // --- NEW: COUNTERS FOR DASHBOARD TICKS ---
+  Future<int> getMasterCount() async => Sqflite.firstIntValue(await (await database).rawQuery('SELECT COUNT(*) FROM master_staff')) ?? 0;
+  Future<int> getDailyCount() async => Sqflite.firstIntValue(await (await database).rawQuery('SELECT COUNT(*) FROM daily_allotment')) ?? 0;
+
+  // --- LATE ENTRY LOGIC ---
   String _calculateStatus(DateTime dt) {
     DateTime threshold = DateTime(dt.year, dt.month, dt.day, 7, 50);
     return dt.isAfter(threshold) ? "LATE ENTRY" : "ON TIME";
   }
 
-  // --- 2. ATTENDANCE FUNCTIONS (FIXED CASE SENSITIVITY) ---
+  // --- ATTENDANCE FUNCTIONS ---
   Future<void> markAttendance(String id, String name, String hall) async {
     final db = await database;
     DateTime now = DateTime.now();
     String status = _calculateStatus(now);
 
     await db.insert('attendance_log', {
-      'staff_id': id.trim().toUpperCase(), // <--- FIX: Force Uppercase
+      'staff_id': id.trim().toUpperCase(),
       'staff_name': name,
       'hall_no': hall,
       'timestamp': now.toString(),
@@ -64,13 +65,10 @@ class DatabaseHelper {
     final db = await database;
     DateTime now = DateTime.now();
     String status = _calculateStatus(now);
-    String cleanId = newId.trim().toUpperCase(); // <--- FIX: Force Uppercase
+    String cleanId = newId.trim().toUpperCase();
 
-    // Link ID
     await db.insert('master_staff', {'staff_id': cleanId, 'staff_name': newName}, conflictAlgorithm: ConflictAlgorithm.replace);
-    // Update Schedule
     await db.update('daily_allotment', {'staff_name': newName, 'status': 'PRESENT'}, where: 'hall_no = ?', whereArgs: [targetHall]);
-    // Log Attendance
     await db.insert('attendance_log', {
       'staff_id': cleanId,
       'staff_name': newName,
@@ -80,7 +78,7 @@ class DatabaseHelper {
     });
   }
 
-  // --- 3. LOOKUP & ALIAS LOGIC ---
+  // --- LOOKUP & ALIAS LOGIC ---
   Future<void> addAlias(String masterName, String scheduleName) async {
     final db = await database;
     var exist = await db.query('staff_aliases', where: 'master_name = ? AND alias_name = ?', whereArgs: [masterName, scheduleName]);
@@ -93,11 +91,9 @@ class DatabaseHelper {
     final db = await database;
     String cleanId = scannedId.trim().toUpperCase();
 
-    // Check Logs (Using cleanId ensures we match the uppercase saved in DB)
     var log = await db.query('attendance_log', where: 'staff_id = ?', whereArgs: [cleanId], limit: 1);
     if (log.isNotEmpty) return {'type': 'LOGGED', 'staff_name': log.first['staff_name'], 'hall_no': log.first['hall_no']};
 
-    // Check Master List
     var master = await db.query('master_staff', where: 'staff_id = ?', whereArgs: [cleanId]);
     if (master.isNotEmpty) {
       String name = master.first['staff_name'].toString();
@@ -113,14 +109,14 @@ class DatabaseHelper {
 
   Future<Map<String, dynamic>?> _findScheduleSmart(String targetName) async {
     final db = await database;
-    // 1. Check Aliases
+    // 1. Aliases
     var aliases = await db.query('staff_aliases', columns: ['alias_name'], where: 'master_name = ?', whereArgs: [targetName]);
     for (var aliasRow in aliases) {
       String knownAlias = aliasRow['alias_name'].toString();
       var match = await db.query('daily_allotment', where: 'staff_name = ?', whereArgs: [knownAlias], limit: 1);
       if (match.isNotEmpty) return match.first;
     }
-    // 2. Fuzzy Match
+    // 2. Fuzzy
     var allRows = await db.query('daily_allotment');
     List<String> targetTokens = _tokenize(targetName);
     for (var row in allRows) {
@@ -129,7 +125,6 @@ class DatabaseHelper {
     return null;
   }
 
-  // --- 4. HELPERS ---
   List<String> _tokenize(String name) {
     String clean = name.toLowerCase().replaceAll(RegExp(r'\b(dr|mr|ms|mrs|prof|er|ar)\b\.?'), '').replaceAll(RegExp(r'[^a-z\s]'), ' ').trim();
     return clean.split(RegExp(r'\s+')).where((s) => s.isNotEmpty).toList();
@@ -186,7 +181,6 @@ class DatabaseHelper {
     }
   }
 
-  // --- MISSING METHOD RESTORED ---
   Future<List<String>> getAllAvailableNames() async {
     final db = await database;
     var schedule = await db.query('daily_allotment', columns: ['staff_name']);
@@ -197,7 +191,6 @@ class DatabaseHelper {
     return names.toList()..sort();
   }
 
-  // Basic DB operations
   Future<void> linkStaff(String id, String name) async => (await database).insert('master_staff', {'staff_id': id.toUpperCase(), 'staff_name': name}, conflictAlgorithm: ConflictAlgorithm.replace);
   Future<void> clearMasterList() async => (await database).delete('master_staff');
   Future<void> clearDailySchedule() async => (await database).delete('daily_allotment');
@@ -207,7 +200,6 @@ class DatabaseHelper {
   Future<List<Map<String, dynamic>>> getPendingHalls() async => (await database).query('daily_allotment', where: 'status = ?', whereArgs: ['PENDING']);
   Future<List<Map<String, dynamic>>> getAllLogs() async => (await database).query('attendance_log');
 
-  // RESET LOGIC
   Future<void> resetDatabase() async {
     final db = await database;
     await db.delete('daily_allotment');
