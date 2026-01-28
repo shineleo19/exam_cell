@@ -37,7 +37,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     setState(() {
       _hasMaster = masterCount > 0;
       _hasSchedule = dailyCount > 0;
-      _recordCount = pending; // Pending count is useful for "Candidates Left"
+      _recordCount = pending;
       _status = _hasSchedule ? "Ready for Exam" : "No Daily Schedule Found";
     });
   }
@@ -280,7 +280,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   // ==========================================================
-  //  5. MANUAL ENTRY SYSTEM
+  //  5. MANUAL ENTRY SYSTEM (MOBILE RESPONSIVE UI)
   // ==========================================================
 
   void _showManualEntryDialog() {
@@ -293,14 +293,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
         builder: (ctx) => StatefulBuilder(
             builder: (context, setState) {
               return AlertDialog(
-                title: Text("Manual ID Entry", style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+                title: Text("Manual ID Entry", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
                 content: Container(
-                  width: 700,
-                  height: 250,
+                  width: double.maxFinite, // Force width to fill screen
                   child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text("Enter Employee ID manually. The window will refresh after entry.", style: TextStyle(fontSize: 16, color: Colors.grey)),
+                      Text("Enter Employee ID manually.", style: TextStyle(fontSize: 16, color: Colors.grey)),
                       SizedBox(height: 30),
                       TextField(
                         controller: _idController,
@@ -309,23 +308,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         style: TextStyle(fontSize: 32, letterSpacing: 3, fontWeight: FontWeight.bold),
                         textAlign: TextAlign.center,
                         decoration: InputDecoration(
-                            hintText: "TYPE ID HERE",
+                            hintText: "TYPE ID",
                             border: OutlineInputBorder(borderRadius: BorderRadius.circular(15)),
-                            prefixIcon: Icon(Icons.keyboard, size: 40),
-                            contentPadding: EdgeInsets.symmetric(vertical: 25, horizontal: 20)
+                            prefixIcon: Icon(Icons.keyboard, size: 30),
+                            contentPadding: EdgeInsets.symmetric(vertical: 20, horizontal: 10)
                         ),
                         onSubmitted: (_) => _processManualEntry(ctx, _idController, _focusNode),
                       ),
                     ],
                   ),
                 ),
-                actionsPadding: EdgeInsets.all(25),
+                actionsPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
                 actions: [
-                  TextButton(onPressed: ()=>Navigator.pop(ctx), child: Text("Close", style: TextStyle(fontSize: 20, color: Colors.grey))),
-                  ElevatedButton(
-                      style: ElevatedButton.styleFrom(padding: EdgeInsets.symmetric(horizontal: 40, vertical: 20), backgroundColor: Colors.indigo, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
-                      onPressed: () => _processManualEntry(ctx, _idController, _focusNode),
-                      child: Text("MARK PRESENT", style: TextStyle(fontSize: 20, color: Colors.white, fontWeight: FontWeight.bold))
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(onPressed: ()=>Navigator.pop(ctx), child: Text("Close", style: TextStyle(fontSize: 18, color: Colors.grey))),
+                      SizedBox(width: 10),
+                      ElevatedButton(
+                          style: ElevatedButton.styleFrom(padding: EdgeInsets.symmetric(horizontal: 25, vertical: 12), backgroundColor: Colors.indigo, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+                          onPressed: () => _processManualEntry(ctx, _idController, _focusNode),
+                          child: Text("MARK PRESENT", style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold))
+                      ),
+                    ],
                   )
                 ],
               );
@@ -370,63 +375,69 @@ class _DashboardScreenState extends State<DashboardScreen> {
     await Navigator.push(context, MaterialPageRoute(builder: (c) => FullScreenResultScreen(title: title, subtitle: subtitle, bgColor: color)));
   }
 
-  // --- RESOLUTION DIALOG 1: UNKNOWN ID (Updated UI) ---
+  // --- RESOLUTION DIALOG 1: UNKNOWN ID (MOBILE OPTIMIZED) ---
   void _showUnknownIdOptions(String id) async {
     List<String> allNames = await DatabaseHelper().getAllAvailableNames();
     String? selectedName;
     TextEditingController manualController = TextEditingController();
 
     showDialog(context: context, barrierDismissible: false, builder: (ctx) => AlertDialog(
-      title: Text("Unknown ID Detected", style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+      title: Text("Unknown ID: $id", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
       content: Container(
-        width: 700,
-        height: 550,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-              decoration: BoxDecoration(color: Colors.amber[50], borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.amber.shade200)),
-              child: Row(
-                children: [
-                  Icon(Icons.warning_amber_rounded, color: Colors.amber[800], size: 30),
-                  SizedBox(width: 15),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text("ID: $id", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
-                      Text("This ID is not in the Master List.", style: TextStyle(color: Colors.amber[900])),
-                    ],
-                  ),
-                ],
+        width: double.maxFinite, // Responsive Width
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 15, vertical: 12),
+                decoration: BoxDecoration(color: Color(0xFFFFF9C4), borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.amber.shade200)),
+                child: Row(
+                  children: [
+                    Icon(Icons.warning_amber_rounded, color: Colors.amber[800], size: 28),
+                    SizedBox(width: 10),
+                    Expanded(child: Text("ID not in Master List.", style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold))),
+                  ],
+                ),
               ),
-            ),
-            SizedBox(height: 30),
-            Text("Option 1: Link to Existing Staff", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.indigo)),
-            SizedBox(height: 10),
-            Autocomplete<String>(
-              optionsBuilder: (v) => v.text == '' ? const Iterable<String>.empty() : allNames.where((opt) => opt.toLowerCase().contains(v.text.toLowerCase())),
-              onSelected: (s) => selectedName = s,
-              fieldViewBuilder: (ctx, ctrl, focus, submit) => TextField(controller: ctrl, focusNode: focus, decoration: InputDecoration(hintText: "Link to Name", prefixIcon: Icon(Icons.link), border: OutlineInputBorder(), filled: true, fillColor: Colors.grey[50])),
-            ),
-            SizedBox(height: 20),
-            Row(children: [Expanded(child: Divider()), Padding(padding: EdgeInsets.symmetric(horizontal: 10), child: Text("OR", style: TextStyle(color: Colors.grey))), Expanded(child: Divider())]),
-            SizedBox(height: 20),
-            Text("Option 2: Register New Name", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.teal)),
-            SizedBox(height: 10),
-            TextField(controller: manualController, decoration: InputDecoration(hintText: "Enter Full Name", prefixIcon: Icon(Icons.person_add), border: OutlineInputBorder(), filled: true, fillColor: Colors.grey[50]), onChanged: (v) => selectedName = null),
-            Spacer(),
-            Row(
-              children: [
-                Expanded(child: ElevatedButton.icon(icon: Icon(Icons.swap_horiz), label: Text("REPLACE ABSENT STAFF"), style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white, padding: EdgeInsets.symmetric(vertical: 20)), onPressed: () { Navigator.pop(ctx); _showSubstitutionSelector(id); })),
-                SizedBox(width: 20),
-                Expanded(child: ElevatedButton.icon(icon: Icon(Icons.save), label: Text("LINK & SAVE"), style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white, padding: EdgeInsets.symmetric(vertical: 20)), onPressed: () async {
-                  String name = manualController.text.isNotEmpty ? manualController.text : (selectedName ?? "");
-                  if (name.isNotEmpty) { await DatabaseHelper().linkStaff(id, name); Navigator.pop(ctx); _showManualEntryDialog(); }
-                })),
-              ],
-            )
-          ],
+              SizedBox(height: 25),
+              Autocomplete<String>(
+                optionsBuilder: (v) => v.text == '' ? const Iterable<String>.empty() : allNames.where((opt) => opt.toLowerCase().contains(v.text.toLowerCase())),
+                onSelected: (s) => selectedName = s,
+                fieldViewBuilder: (ctx, ctrl, focus, submit) => TextField(controller: ctrl, focusNode: focus, decoration: InputDecoration(hintText: "Link to Name", prefixIcon: Icon(Icons.search), border: UnderlineInputBorder(), contentPadding: EdgeInsets.symmetric(vertical: 15))),
+              ),
+              SizedBox(height: 15),
+              Row(children: [Expanded(child: Divider()), Padding(padding: EdgeInsets.symmetric(horizontal: 10), child: Text("OR", style: TextStyle(color: Colors.grey))), Expanded(child: Divider())]),
+              SizedBox(height: 15),
+              TextField(controller: manualController, decoration: InputDecoration(hintText: "Enter New Name", prefixIcon: Icon(Icons.person_add), border: UnderlineInputBorder(), contentPadding: EdgeInsets.symmetric(vertical: 15)), onChanged: (v) => selectedName = null),
+              SizedBox(height: 30),
+
+              // Buttons Stacked for Mobile
+              SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                      icon: Icon(Icons.swap_horiz),
+                      label: Text("REPLACE ABSENT STAFF"),
+                      style: ElevatedButton.styleFrom(backgroundColor: Color(0xFFFF5252), foregroundColor: Colors.white, padding: EdgeInsets.symmetric(vertical: 16)),
+                      onPressed: () { Navigator.pop(ctx); _showSubstitutionSelector(id); }
+                  )
+              ),
+              SizedBox(height: 10),
+              SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                      icon: Icon(Icons.save),
+                      label: Text("LINK & SAVE"),
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, foregroundColor: Colors.white, padding: EdgeInsets.symmetric(vertical: 16)),
+                      onPressed: () async {
+                        String name = manualController.text.isNotEmpty ? manualController.text : (selectedName ?? "");
+                        if (name.isNotEmpty) { await DatabaseHelper().linkStaff(id, name); Navigator.pop(ctx); _showManualEntryDialog(); }
+                      }
+                  )
+              ),
+            ],
+          ),
         ),
       ),
       actions: [
@@ -435,7 +446,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     ));
   }
 
-  // --- RESOLUTION DIALOG 2: MISMATCH ---
+  // --- RESOLUTION DIALOG 2: MISMATCH (MOBILE OPTIMIZED) ---
   void _showNameMismatchDialog(String id, String masterName) async {
     List<Map<String, dynamic>> pending = await DatabaseHelper().getPendingHalls();
     TextEditingController searchCtrl = TextEditingController();
@@ -445,40 +456,47 @@ class _DashboardScreenState extends State<DashboardScreen> {
         context: context, barrierDismissible: false,
         builder: (ctx) => StatefulBuilder(
             builder: (context, setStateDialog) => AlertDialog(
-              title: Text("Schedule Mismatch"),
-              content: Container(width: 500, height: 500, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Container(padding: EdgeInsets.all(10), color: Colors.orange[50], child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text("Found in Master List:", style: TextStyle(color: Colors.grey[700], fontSize: 12)),
-                  Text(masterName, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  SizedBox(height: 5), Text("Status: Not found in Daily Schedule", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 12)),
-                ])),
-                SizedBox(height: 15), Text("Is this staff listed differently?", style: TextStyle(fontWeight: FontWeight.bold)),
-                TextField(controller: searchCtrl, decoration: InputDecoration(hintText: "Search Schedule...", prefixIcon: Icon(Icons.search)), onChanged: (val) {
-                  setStateDialog(() { filteredPending = pending.where((row) => row['staff_name'].toString().toLowerCase().contains(val.toLowerCase()) || row['hall_no'].toString().contains(val)).toList(); });
-                }),
-                Expanded(child: ListView.separated(separatorBuilder: (c,i)=>Divider(), itemCount: filteredPending.length, itemBuilder: (c, i) => ListTile(
-                  title: Text(filteredPending[i]['staff_name']), subtitle: Text("Hall: ${filteredPending[i]['hall_no']}"),
-                  trailing: ElevatedButton(child: Text("LINK"), onPressed: () async {
-                    await DatabaseHelper().addAlias(masterName, filteredPending[i]['staff_name']);
-                    await DatabaseHelper().substituteAndLink(id, masterName, filteredPending[i]['hall_no']);
-                    Navigator.pop(ctx);
-                    await _showResultAndReopen("HALL ${filteredPending[i]['hall_no']}", masterName, Colors.green);
-                    _showManualEntryDialog();
-                  }),
-                )))
-              ])),
+              title: Text("Mismatch", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+              content: Container(
+                  width: double.maxFinite,
+                  height: MediaQuery.of(context).size.height * 0.6,
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Container(padding: EdgeInsets.all(10), color: Colors.orange[50], width: double.infinity, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text("Master List: $masterName", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      Text("Not found in Schedule", style: TextStyle(color: Colors.red, fontSize: 12)),
+                    ])),
+                    SizedBox(height: 15),
+                    TextField(controller: searchCtrl, decoration: InputDecoration(hintText: "Search Schedule...", prefixIcon: Icon(Icons.search), border: OutlineInputBorder(), contentPadding: EdgeInsets.all(10)), onChanged: (val) {
+                      setStateDialog(() { filteredPending = pending.where((row) => row['staff_name'].toString().toLowerCase().contains(val.toLowerCase()) || row['hall_no'].toString().contains(val)).toList(); });
+                    }),
+                    SizedBox(height: 10),
+                    Expanded(child: ListView.builder(itemCount: filteredPending.length, itemBuilder: (c, i) => Card(
+                      margin: EdgeInsets.only(bottom: 8),
+                      child: ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.symmetric(horizontal: 10),
+                        title: Text(filteredPending[i]['staff_name'], style: TextStyle(fontWeight: FontWeight.bold)),
+                        subtitle: Text("Hall: ${filteredPending[i]['hall_no']}"),
+                        trailing: ElevatedButton(child: Text("LINK"), style: ElevatedButton.styleFrom(visualDensity: VisualDensity.compact), onPressed: () async {
+                          await DatabaseHelper().addAlias(masterName, filteredPending[i]['staff_name']);
+                          await DatabaseHelper().substituteAndLink(id, masterName, filteredPending[i]['hall_no']);
+                          Navigator.pop(ctx);
+                          await _showResultAndReopen("HALL ${filteredPending[i]['hall_no']}", masterName, Colors.green);
+                          _showManualEntryDialog();
+                        }),
+                      ),
+                    )))
+                  ])),
               actions: [
-                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                  TextButton.icon(icon: Icon(Icons.swap_horiz), label: Text("REPLACE STAFF"), onPressed: () { Navigator.pop(ctx); _showSubstitutionSelector(id); }),
-                  TextButton(onPressed: () { Navigator.pop(ctx); _showResultAndReopen("NOT ALLOTTED", "No duty today.", Colors.red); _showManualEntryDialog(); }, child: Text("NO DUTY", style: TextStyle(color: Colors.red)))
-                ])
+                TextButton(onPressed: () { Navigator.pop(ctx); _showSubstitutionSelector(id); }, child: Text("REPLACE")),
+                TextButton(onPressed: () { Navigator.pop(ctx); _showResultAndReopen("NOT ALLOTTED", "No duty.", Colors.red); _showManualEntryDialog(); }, child: Text("NO DUTY", style: TextStyle(color: Colors.red)))
               ],
             )
         )
     );
   }
 
-  // --- RESOLUTION DIALOG 3: SUBSTITUTE (UPDATED UI) ---
+  // --- RESOLUTION DIALOG 3: SUBSTITUTE (FIXED UI FOR MOBILE) ---
   void _showSubstitutionSelector(String id) async {
     List<Map<String, dynamic>> pending = await DatabaseHelper().getPendingHalls();
     TextEditingController nameCtrl = TextEditingController();
@@ -490,34 +508,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
         barrierDismissible: false,
         builder: (ctx) => StatefulBuilder(
             builder: (context, setStateDialog) => AlertDialog(
-                title: Text("Replace Staff", style: TextStyle(fontSize: 28)),
+                title: Text("Replace Staff", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
                 content: Container(
-                    width: 600,
-                    height: 500,
+                    width: double.maxFinite, // Forces width to expand on mobile
+                    height: MediaQuery.of(context).size.height * 0.7, // Dynamic Height
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        SizedBox(height: 10),
+                        SizedBox(height: 5),
                         TextField(
                             controller: nameCtrl,
-                            style: TextStyle(fontSize: 18),
                             decoration: InputDecoration(
-                                hintText: "New Staff Name",
-                                hintStyle: TextStyle(color: Colors.grey),
-                                border: UnderlineInputBorder(),
-                                contentPadding: EdgeInsets.only(bottom: 10)
+                                hintText: "Enter New Staff Name",
+                                prefixIcon: Icon(Icons.person_add),
+                                border: OutlineInputBorder(),
+                                contentPadding: EdgeInsets.symmetric(vertical: 12, horizontal: 10)
                             )
                         ),
-                        SizedBox(height: 25),
+                        SizedBox(height: 15),
                         TextField(
                           controller: searchCtrl,
                           decoration: InputDecoration(
-                              hintText: "Search Hall or Staff...",
-                              prefixIcon: Icon(Icons.search, size: 20),
-                              border: OutlineInputBorder(borderSide: BorderSide.none),
+                              hintText: "Search Absent Staff...",
+                              prefixIcon: Icon(Icons.search),
+                              border: OutlineInputBorder(),
                               filled: true,
                               fillColor: Colors.grey[100],
-                              contentPadding: EdgeInsets.symmetric(vertical: 0)
+                              contentPadding: EdgeInsets.symmetric(vertical: 12, horizontal: 10)
                           ),
                           onChanged: (val) {
                             setStateDialog(() {
@@ -528,27 +545,46 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             });
                           },
                         ),
-                        SizedBox(height: 15),
+                        SizedBox(height: 10),
                         Expanded(
                             child: ListView.builder(
                                 itemCount: filteredPending.length,
-                                itemBuilder: (c, i) => InkWell(
-                                  onTap: () async {
-                                    if (nameCtrl.text.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Please enter New Staff Name first!"))); return; }
-                                    await DatabaseHelper().substituteAndLink(id, nameCtrl.text, filteredPending[i]['hall_no']);
-                                    Navigator.pop(ctx);
-                                    await _showResultAndReopen("REPLACED", "Hall ${filteredPending[i]['hall_no']}", Colors.orange);
-                                    _showManualEntryDialog();
-                                  },
-                                  child: Container(
-                                    padding: EdgeInsets.symmetric(vertical: 12, horizontal: 10),
-                                    decoration: BoxDecoration(color: i == 0 ? Colors.grey[200] : Colors.transparent, borderRadius: BorderRadius.circular(5)),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                itemBuilder: (c, i) => Card(
+                                  elevation: 2,
+                                  margin: EdgeInsets.only(bottom: 8),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(12.0),
+                                    child: Row(
                                       children: [
-                                        Text("Hall ${filteredPending[i]['hall_no']}", style: TextStyle(fontSize: 16, color: Colors.black87)),
-                                        SizedBox(height: 4),
-                                        Text("Replacing: ${filteredPending[i]['staff_name']}", style: TextStyle(fontSize: 14, color: Colors.grey[600])),
+                                        // Left Side: Info
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text("Hall ${filteredPending[i]['hall_no']}", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                              SizedBox(height: 4),
+                                              Text("Replacing: ${filteredPending[i]['staff_name']}", style: TextStyle(fontSize: 13, color: Colors.grey[700])),
+                                            ],
+                                          ),
+                                        ),
+                                        // Right Side: Button
+                                        ElevatedButton(
+                                          style: ElevatedButton.styleFrom(
+                                              backgroundColor: Colors.indigo,
+                                              foregroundColor: Colors.white,
+                                              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                              visualDensity: VisualDensity.compact
+                                          ),
+                                          onPressed: () async {
+                                            if (nameCtrl.text.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Enter New Staff Name first!"))); return; }
+                                            await DatabaseHelper().substituteAndLink(id, nameCtrl.text, filteredPending[i]['hall_no']);
+                                            Navigator.pop(ctx);
+                                            await _showResultAndReopen("REPLACED", "Hall ${filteredPending[i]['hall_no']}", Colors.orange);
+                                            _showManualEntryDialog();
+                                          },
+                                          child: Text("REPLACE"),
+                                        )
                                       ],
                                     ),
                                   ),
@@ -558,15 +594,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ],
                     )
                 ),
-                actionsPadding: EdgeInsets.only(right: 25, bottom: 20),
                 actions: [
-                  TextButton(
-                      onPressed: () {
-                        Navigator.pop(ctx);
-                        _showManualEntryDialog();
-                      },
-                      child: Text("Cancel", style: TextStyle(fontSize: 16, color: Colors.indigo, fontWeight: FontWeight.bold))
-                  )
+                  TextButton(onPressed: () { Navigator.pop(ctx); _showManualEntryDialog(); }, child: Text("Cancel"))
                 ]
             )
         )
@@ -609,7 +638,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 SizedBox(height: 30),
                 Text("TOTAL CANDIDATES", style: TextStyle(color: Colors.indigo[100], fontSize: 12, letterSpacing: 1.5)),
                 SizedBox(height: 5),
-                Text("$_recordCount", style: TextStyle(color: Colors.white, fontSize: 48, fontWeight: FontWeight.w900)),
+                FittedBox(fit: BoxFit.scaleDown, child: Text("$_recordCount", style: TextStyle(color: Colors.white, fontSize: 48, fontWeight: FontWeight.w900))),
                 SizedBox(height: 10),
                 Container(
                   padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -688,7 +717,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 }
 
-// --- FULL SCREEN RESULT (Wait for SPACE BAR) ---
 class FullScreenResultScreen extends StatefulWidget {
   final String title;
   final String subtitle;
@@ -703,12 +731,6 @@ class _FullScreenResultScreenState extends State<FullScreenResultScreen> {
   final FocusNode _focusNode = FocusNode();
 
   @override
-  void initState() {
-    super.initState();
-    // Removed Auto-Close. Now waiting for Key Press.
-  }
-
-  @override
   void dispose() {
     _focusNode.dispose();
     super.dispose();
@@ -716,6 +738,11 @@ class _FullScreenResultScreenState extends State<FullScreenResultScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Responsive Text Sizing
+    final size = MediaQuery.of(context).size;
+    final double titleSize = size.width > 600 ? 90 : 60;
+    final double subSize = size.width > 600 ? 36 : 24;
+
     return RawKeyboardListener(
       focusNode: _focusNode,
       autofocus: true,
@@ -729,21 +756,24 @@ class _FullScreenResultScreenState extends State<FullScreenResultScreen> {
         body: InkWell(
           onTap: () => Navigator.pop(context),
           child: Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.check_circle, color: Colors.white, size: 120),
-                SizedBox(height: 30),
-                Text(widget.title, textAlign: TextAlign.center, style: TextStyle(fontSize: 90, color: Colors.white, fontWeight: FontWeight.bold)),
-                SizedBox(height: 20),
-                Text(widget.subtitle, textAlign: TextAlign.center, style: TextStyle(fontSize: 36, color: Colors.white70)),
-                SizedBox(height: 50),
-                Container(
-                  padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                  decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(20)),
-                  child: Text("Press SPACE BAR to Continue", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                )
-              ],
+            child: Padding(
+              padding: const EdgeInsets.all(20.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.check_circle, color: Colors.white, size: size.width > 600 ? 120 : 80),
+                  SizedBox(height: 30),
+                  Text(widget.title, textAlign: TextAlign.center, style: TextStyle(fontSize: titleSize, color: Colors.white, fontWeight: FontWeight.bold)),
+                  SizedBox(height: 20),
+                  Text(widget.subtitle, textAlign: TextAlign.center, style: TextStyle(fontSize: subSize, color: Colors.white70)),
+                  SizedBox(height: 50),
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                    decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(20)),
+                    child: Text("Press SPACE BAR to Continue", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                  )
+                ],
+              ),
             ),
           ),
         ),

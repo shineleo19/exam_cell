@@ -180,7 +180,6 @@ class DatabaseHelper {
       } catch (e) {}
     }
   }
-
   Future<List<String>> getAllAvailableNames() async {
     final db = await database;
     var schedule = await db.query('daily_allotment', columns: ['staff_name']);

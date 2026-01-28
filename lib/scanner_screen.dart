@@ -181,12 +181,16 @@ class _ScannerScreenState extends State<ScannerScreen> {
     TextEditingController searchCtrl = TextEditingController();
     List<Map<String, dynamic>> filteredPending = List.from(pending);
 
+    final size = MediaQuery.of(context).size;
+    final double dialogWidth = size.width > 800 ? 600 : size.width * 0.95;
+    final double dialogHeight = size.height > 800 ? 500 : size.height * 0.7;
+
     showDialog(
         context: context, barrierDismissible: false,
         builder: (ctx) => StatefulBuilder(
             builder: (context, setStateDialog) => AlertDialog(
               title: Text("Schedule Mismatch"),
-              content: Container(width: 500, height: 500, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              content: Container(width: dialogWidth, height: dialogHeight, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Container(padding: EdgeInsets.all(10), color: Colors.orange[50], child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text("Found in Master List:", style: TextStyle(color: Colors.grey[700], fontSize: 12)),
                   Text(masterName, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
@@ -217,90 +221,83 @@ class _ScannerScreenState extends State<ScannerScreen> {
     );
   }
 
-  // --- DIALOG 2: UNKNOWN ID (REVAMPED UI) ---
+  // --- DIALOG 2: UNKNOWN ID (RESPONSIVE) ---
   void _showUnknownIdOptions(String id) async {
     List<String> allNames = await DatabaseHelper().getAllAvailableNames();
     String? selectedName;
     TextEditingController manualController = TextEditingController();
 
+    final size = MediaQuery.of(context).size;
+    final double dialogWidth = size.width > 800 ? 700 : size.width * 0.95;
+    final double dialogHeight = size.height > 800 ? 550 : size.height * 0.8;
+
     showDialog(context: context, barrierDismissible: false, builder: (ctx) => AlertDialog(
-      title: Text("Unknown ID Detected", style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+      title: Text("Unknown ID Detected", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
       content: Container(
-        width: 700, // WIDER
-        height: 550, // TALLER
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Warning Banner
-            Container(
-              padding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
-              decoration: BoxDecoration(color: Colors.amber[50], borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.amber.shade200)),
-              child: Row(
-                children: [
-                  Icon(Icons.warning_amber_rounded, color: Colors.amber[800], size: 30),
-                  SizedBox(width: 15),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text("ID: $id", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
-                      Text("This ID is not in the Master List.", style: TextStyle(color: Colors.amber[900])),
-                    ],
-                  ),
-                ],
+        width: dialogWidth,
+        height: dialogHeight,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                decoration: BoxDecoration(color: Colors.amber[50], borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.amber.shade200)),
+                child: Row(
+                  children: [
+                    Icon(Icons.warning_amber_rounded, color: Colors.amber[800], size: 30),
+                    SizedBox(width: 15),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text("ID: $id", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
+                          Text("This ID is not in the Master List.", style: TextStyle(color: Colors.amber[900])),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            SizedBox(height: 30),
+              SizedBox(height: 30),
+              Text("Option 1: Link to Existing Staff", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.indigo)),
+              SizedBox(height: 10),
+              Autocomplete<String>(
+                optionsBuilder: (v) => v.text == '' ? const Iterable<String>.empty() : allNames.where((opt) => opt.toLowerCase().contains(v.text.toLowerCase())),
+                onSelected: (s) => selectedName = s,
+                fieldViewBuilder: (ctx, ctrl, focus, submit) => TextField(controller: ctrl, focusNode: focus, decoration: InputDecoration(hintText: "Link to Name", prefixIcon: Icon(Icons.link), border: OutlineInputBorder(), filled: true, fillColor: Colors.grey[50])),
+              ),
+              SizedBox(height: 20),
+              Row(children: [Expanded(child: Divider()), Padding(padding: EdgeInsets.symmetric(horizontal: 10), child: Text("OR", style: TextStyle(color: Colors.grey))), Expanded(child: Divider())]),
+              SizedBox(height: 20),
+              Text("Option 2: Register New Name", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.teal)),
+              SizedBox(height: 10),
+              TextField(controller: manualController, decoration: InputDecoration(hintText: "Enter Full Name", prefixIcon: Icon(Icons.person_add), border: OutlineInputBorder(), filled: true, fillColor: Colors.grey[50]), onChanged: (v) => selectedName = null),
 
-            // Option 1
-            Text("Option 1: Link to Existing Staff", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.indigo)),
-            SizedBox(height: 10),
-            Autocomplete<String>(
-              optionsBuilder: (v) => v.text == '' ? const Iterable<String>.empty() : allNames.where((opt) => opt.toLowerCase().contains(v.text.toLowerCase())),
-              onSelected: (s) => selectedName = s,
-              fieldViewBuilder: (ctx, ctrl, focus, submit) => TextField(controller: ctrl, focusNode: focus, decoration: InputDecoration(hintText: "Search Name to Link...", prefixIcon: Icon(Icons.link), border: OutlineInputBorder(), filled: true, fillColor: Colors.grey[50])),
-            ),
-
-            SizedBox(height: 20),
-            Row(children: [Expanded(child: Divider()), Padding(padding: EdgeInsets.symmetric(horizontal: 10), child: Text("OR", style: TextStyle(color: Colors.grey))), Expanded(child: Divider())]),
-            SizedBox(height: 20),
-
-            // Option 2
-            Text("Option 2: Register New Name", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.teal)),
-            SizedBox(height: 10),
-            TextField(controller: manualController, decoration: InputDecoration(hintText: "Enter Full Name", prefixIcon: Icon(Icons.person_add), border: OutlineInputBorder(), filled: true, fillColor: Colors.grey[50]), onChanged: (v) => selectedName = null),
-
-            Spacer(),
-
-            // Action Buttons
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                      icon: Icon(Icons.swap_horiz),
-                      label: Text("REPLACE ABSENT STAFF"),
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white, padding: EdgeInsets.symmetric(vertical: 20)),
-                      onPressed: () { Navigator.pop(ctx); _showSubstitutionSelector(id); }
-                  ),
-                ),
-                SizedBox(width: 20),
-                Expanded(
-                  child: ElevatedButton.icon(
-                      icon: Icon(Icons.save),
-                      label: Text("LINK & SAVE"),
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white, padding: EdgeInsets.symmetric(vertical: 20)),
-                      onPressed: () async {
-                        String name = manualController.text.isNotEmpty ? manualController.text : (selectedName ?? "");
-                        if (name.isNotEmpty) {
-                          await DatabaseHelper().linkStaff(id, name);
-                          Navigator.pop(ctx);
-                          _isProcessing = false; _handleCodeFound(id);
-                        }
-                      }
-                  ),
-                ),
-              ],
-            )
-          ],
+              SizedBox(height: 30),
+              size.width < 500
+                  ? Column(
+                  children: [
+                    SizedBox(width: double.infinity, child: ElevatedButton.icon(icon: Icon(Icons.swap_horiz), label: Text("REPLACE ABSENT STAFF"), style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white, padding: EdgeInsets.symmetric(vertical: 15)), onPressed: () { Navigator.pop(ctx); _showSubstitutionSelector(id); })),
+                    SizedBox(height: 10),
+                    SizedBox(width: double.infinity, child: ElevatedButton.icon(icon: Icon(Icons.save), label: Text("LINK & SAVE"), style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white, padding: EdgeInsets.symmetric(vertical: 15)), onPressed: () async {
+                      String name = manualController.text.isNotEmpty ? manualController.text : (selectedName ?? "");
+                      if (name.isNotEmpty) { await DatabaseHelper().linkStaff(id, name); Navigator.pop(ctx); _isProcessing = false; _handleCodeFound(id); }
+                    })),
+                  ]
+              )
+                  : Row(
+                children: [
+                  Expanded(child: ElevatedButton.icon(icon: Icon(Icons.swap_horiz), label: Text("REPLACE ABSENT STAFF"), style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white, padding: EdgeInsets.symmetric(vertical: 20)), onPressed: () { Navigator.pop(ctx); _showSubstitutionSelector(id); })),
+                  SizedBox(width: 20),
+                  Expanded(child: ElevatedButton.icon(icon: Icon(Icons.save), label: Text("LINK & SAVE"), style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white, padding: EdgeInsets.symmetric(vertical: 20)), onPressed: () async {
+                    String name = manualController.text.isNotEmpty ? manualController.text : (selectedName ?? "");
+                    if (name.isNotEmpty) { await DatabaseHelper().linkStaff(id, name); Navigator.pop(ctx); _isProcessing = false; _handleCodeFound(id); }
+                  })),
+                ],
+              )
+            ],
+          ),
         ),
       ),
       actions: [
@@ -309,60 +306,118 @@ class _ScannerScreenState extends State<ScannerScreen> {
     ));
   }
 
-  // --- DIALOG 3: SUBSTITUTION (UPDATED WITH SEARCH) ---
+  // --- DIALOG 3: SUBSTITUTION (RESPONSIVE) ---
   void _showSubstitutionSelector(String id) async {
     List<Map<String, dynamic>> pending = await DatabaseHelper().getPendingHalls();
     TextEditingController nameCtrl = TextEditingController();
     TextEditingController searchCtrl = TextEditingController();
     List<Map<String, dynamic>> filteredPending = List.from(pending);
 
+    final size = MediaQuery.of(context).size;
+    final double dialogWidth = size.width > 800 ? 700 : size.width * 0.95;
+    final double dialogHeight = size.height > 800 ? 600 : size.height * 0.8;
+
     showDialog(
         context: context,
         barrierDismissible: false,
         builder: (ctx) => StatefulBuilder(
             builder: (context, setStateDialog) => AlertDialog(
-                title: Text("Replace Staff", style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
-                content: Container(width: 700, height: 600, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text("1. Enter New Staff Name", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey[700])),
-                  SizedBox(height: 10),
-                  TextField(
-                      controller: nameCtrl,
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                      decoration: InputDecoration(hintText: "Your Name", border: OutlineInputBorder(), prefixIcon: Icon(Icons.person_add, color: Colors.indigo), filled: true, fillColor: Colors.grey[50])
-                  ),
-                  SizedBox(height: 25), Divider(), SizedBox(height: 15),
-                  Text("2. Select who you are replacing", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey[700])),
-                  SizedBox(height: 10),
-                  TextField(
-                    controller: searchCtrl,
-                    decoration: InputDecoration(hintText: "Search Name or Hall...", prefixIcon: Icon(Icons.search), border: OutlineInputBorder(), contentPadding: EdgeInsets.all(15)),
-                    onChanged: (val) {
-                      setStateDialog(() {
-                        filteredPending = pending.where((row) => row['staff_name'].toString().toLowerCase().contains(val.toLowerCase()) || row['hall_no'].toString().contains(val)).toList();
-                      });
-                    },
-                  ),
-                  SizedBox(height: 15),
-                  Expanded(child: ListView.builder(itemCount: filteredPending.length, itemBuilder: (c, i) => Card(
-                    elevation: 3, margin: EdgeInsets.only(bottom: 10),
-                    child: ListTile(
-                      leading: CircleAvatar(backgroundColor: Colors.red[50], child: Text("${filteredPending[i]['hall_no']}", style: TextStyle(color: Colors.red[800], fontWeight: FontWeight.bold, fontSize: 12))),
-                      title: Text("Hall ${filteredPending[i]['hall_no']}", style: TextStyle(fontWeight: FontWeight.bold)),
-                      subtitle: Text("Replacing: ${filteredPending[i]['staff_name']}"),
-                      trailing: ElevatedButton.icon(
-                          icon: Icon(Icons.swap_horiz, size: 18), label: Text("REPLACE"),
-                          style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, foregroundColor: Colors.white),
-                          onPressed: () async {
-                            if (nameCtrl.text.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Enter YOUR name first!"))); return; }
-                            await DatabaseHelper().substituteAndLink(id, nameCtrl.text, filteredPending[i]['hall_no']);
-                            Navigator.pop(ctx);
-                            _showResult(Colors.orange, "REPLACED", "Hall ${filteredPending[i]['hall_no']}");
-                          }
-                      ),
-                    ),
-                  )))
-                ])),
-                actions: [TextButton(onPressed: () { Navigator.pop(ctx); _triggerNextScan(); }, child: Text("Cancel", style: TextStyle(fontSize: 16)))]
+                title: Text("Replace Absent Staff", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                content: Container(
+                    width: dialogWidth,
+                    height: dialogHeight,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text("1. Enter New Staff Name", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey[700])),
+                        SizedBox(height: 10),
+                        TextField(
+                            controller: nameCtrl,
+                            style: TextStyle(fontSize: 18),
+                            decoration: InputDecoration(
+                                hintText: "Your Name",
+                                border: OutlineInputBorder(),
+                                prefixIcon: Icon(Icons.person_add, color: Colors.indigo),
+                                filled: true,
+                                fillColor: Colors.grey[50]
+                            )
+                        ),
+                        SizedBox(height: 25), Divider(thickness: 1), SizedBox(height: 15),
+                        Text("2. Select who you are replacing", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey[700])),
+                        SizedBox(height: 10),
+                        TextField(
+                          controller: searchCtrl,
+                          decoration: InputDecoration(
+                              hintText: "Search Name or Hall...",
+                              prefixIcon: Icon(Icons.search),
+                              border: OutlineInputBorder(),
+                              contentPadding: EdgeInsets.all(15)
+                          ),
+                          onChanged: (val) {
+                            setStateDialog(() {
+                              filteredPending = pending.where((row) =>
+                              row['staff_name'].toString().toLowerCase().contains(val.toLowerCase()) ||
+                                  row['hall_no'].toString().toLowerCase().contains(val.toLowerCase())
+                              ).toList();
+                            });
+                          },
+                        ),
+                        SizedBox(height: 15),
+                        Expanded(
+                            child: ListView.builder(
+                                itemCount: filteredPending.length,
+                                itemBuilder: (c, i) => Card(
+                                  elevation: 3,
+                                  margin: EdgeInsets.only(bottom: 10),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                  child: ListTile(
+                                    contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                                    leading: CircleAvatar(
+                                        radius: 25,
+                                        backgroundColor: Colors.red[50],
+                                        child: Text(
+                                            "${filteredPending[i]['hall_no']}",
+                                            style: TextStyle(color: Colors.red[800], fontWeight: FontWeight.bold, fontSize: 12)
+                                        )
+                                    ),
+                                    title: Text("Hall ${filteredPending[i]['hall_no']}", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                                    subtitle: RichText(
+                                      text: TextSpan(
+                                          style: TextStyle(color: Colors.black87, fontSize: 14),
+                                          children: [
+                                            TextSpan(text: "Replacing: "),
+                                            TextSpan(text: filteredPending[i]['staff_name'], style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red[700])),
+                                          ]
+                                      ),
+                                    ),
+                                    trailing: ElevatedButton.icon(
+                                        icon: Icon(Icons.swap_horiz, size: 18),
+                                        label: Text("REPLACE"),
+                                        style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, foregroundColor: Colors.white, padding: EdgeInsets.symmetric(horizontal: 10, vertical: 12)),
+                                        onPressed: () async {
+                                          if (nameCtrl.text.isEmpty) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Enter YOUR name first!"))); return; }
+                                          await DatabaseHelper().substituteAndLink(id, nameCtrl.text, filteredPending[i]['hall_no']);
+                                          Navigator.pop(ctx);
+                                          _showResult(Colors.orange, "REPLACED", "Hall ${filteredPending[i]['hall_no']}");
+                                        }
+                                    ),
+                                  ),
+                                )
+                            )
+                        )
+                      ],
+                    )
+                ),
+                actionsPadding: EdgeInsets.only(right: 25, bottom: 20),
+                actions: [
+                  TextButton(
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        _triggerNextScan();
+                      },
+                      child: Text("Cancel", style: TextStyle(fontSize: 16, color: Colors.indigo, fontWeight: FontWeight.bold))
+                  )
+                ]
             )
         )
     );
@@ -377,33 +432,69 @@ class _ScannerScreenState extends State<ScannerScreen> {
   @override
   Widget build(BuildContext context) {
     return RawKeyboardListener(
-      focusNode: _keyboardFocus, autofocus: true,
-      onKey: (event) { if (event is RawKeyDownEvent && event.logicalKey == LogicalKeyboardKey.space && _hallDisplay != null) _triggerNextScan(); },
+      focusNode: _keyboardFocus,
+      autofocus: true,
+      onKey: (event) {
+        if (event is RawKeyDownEvent && event.logicalKey == LogicalKeyboardKey.space) {
+          if (_hallDisplay != null) _triggerNextScan();
+        }
+      },
       child: Scaffold(
         backgroundColor: _bgColor,
         appBar: _hallDisplay == null ? AppBar(title: Text("Kiosk Mode")) : null,
-        body: _hallDisplay != null ? _buildResultUI() : (Platform.isWindows ? _buildWindowsUI() : _buildMobileUI()),
+        body: _hallDisplay != null
+            ? _buildResultUI()
+            : (Platform.isWindows ? _buildWindowsUI() : _buildMobileUI()),
       ),
     );
   }
 
-  Widget _buildResultUI() => InkWell(onTap: _triggerNextScan, child: Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-    Icon(Icons.check_circle, color: Colors.white, size: 100),
-    Text(_hallDisplay!, style: TextStyle(fontSize: 80, color: Colors.white, fontWeight: FontWeight.bold)),
-    Text(_message, style: TextStyle(fontSize: 32, color: Colors.white70)),
-    SizedBox(height: 50),
-    Text("Press SPACE BAR for Next", style: TextStyle(color: Colors.white, fontSize: 18))
-  ])));
+  Widget _buildResultUI() {
+    final size = MediaQuery.of(context).size;
+    final double titleSize = size.width > 600 ? 80 : 50;
 
-  Widget _buildMobileUI() => Column(children: [
-    Expanded(flex: 2, child: _isProcessing ? Center(child: Icon(Icons.camera_alt, size: 100, color: Colors.grey)) : MobileScanner(controller: _mobileController!, onDetect: (c) => _handleCodeFound(c.barcodes.first.rawValue!))),
-    Expanded(flex: 1, child: Center(child: Text(_message)))
-  ]);
+    return InkWell(
+      onTap: _triggerNextScan,
+      child: Center(child: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.check_circle, color: Colors.white, size: 100),
+            SizedBox(height: 20),
+            Text(_hallDisplay!, textAlign: TextAlign.center, style: TextStyle(fontSize: titleSize, color: Colors.white, fontWeight: FontWeight.bold)),
+            SizedBox(height: 20),
+            Text(_message, textAlign: TextAlign.center, style: TextStyle(fontSize: 32, color: Colors.white70)),
+            SizedBox(height: 50),
+            Container(
+              padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(20)),
+              child: Text("Press SPACE BAR for Next", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+            )
+          ],
+        ),
+      )),
+    );
+  }
 
-  Widget _buildWindowsUI() => Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-    Icon(Icons.monitor, size: 100, color: Colors.indigo), SizedBox(height: 30),
-    Text("SYSTEM ACTIVE", style: TextStyle(fontSize: 40, fontWeight: FontWeight.bold)), SizedBox(height: 20),
-    Text(_message, style: TextStyle(fontSize: 18, color: Colors.grey)), SizedBox(height: 40),
-    ElevatedButton(onPressed: _startPythonScanner, child: Text("Relaunch Camera"))
-  ]));
+  Widget _buildMobileUI() {
+    return Column(children: [
+      Expanded(flex: 2, child: MobileScanner(controller: _mobileController!, onDetect: (c) => _handleCodeFound(c.barcodes.first.rawValue!))),
+      Expanded(flex: 1, child: Center(child: Text(_message)))
+    ]);
+  }
+
+  Widget _buildWindowsUI() {
+    return Center(
+      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+        Icon(Icons.monitor, size: 100, color: Colors.indigo),
+        SizedBox(height: 30),
+        Text("SYSTEM ACTIVE", style: TextStyle(fontSize: 40, fontWeight: FontWeight.w900, letterSpacing: 2)),
+        SizedBox(height: 20),
+        Text(_message, style: TextStyle(fontSize: 18, color: Colors.grey)),
+        SizedBox(height: 40),
+        ElevatedButton(onPressed: _startPythonScanner, child: Text("Relaunch Camera"))
+      ]),
+    );
+  }
 }
