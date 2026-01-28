@@ -1,8 +1,10 @@
 import 'dart:io';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:typed_data';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:spreadsheet_decoder/spreadsheet_decoder.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper _instance = DatabaseHelper._internal();
@@ -18,166 +20,197 @@ class DatabaseHelper {
   }
 
   Future<Database> _initDatabase() async {
-    // For Windows/Linux, the database factory is set in main.dart via FFI
-    // For Mobile, getApplicationDocumentsDirectory works standardly
     Directory documentsDirectory = await getApplicationDocumentsDirectory();
-    String path = join(documentsDirectory.path, 'exam_admin_dynamic_v14.db');
+    String path = join(documentsDirectory.path, 'exam_admin_v14.db');
 
-    return await openDatabase(
-      path,
-      version: 1,
-      onCreate: _onCreate,
-    );
+    var db = await openDatabase(path, version: 1, onCreate: _onCreate);
+
+    // Auto-seed from assets if empty
+    await _seedDatabaseIfEmpty(db);
+
+    return db;
   }
 
   Future<void> _onCreate(Database db, int version) async {
-    // 1. DAILY SCHEDULE
-    await db.execute('''
-      CREATE TABLE daily_allotment(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        staff_id TEXT,
-        staff_name TEXT,
-        hall_no TEXT,
-        status TEXT DEFAULT 'PENDING'
-      )
-    ''');
-
-    // 2. ATTENDANCE LOG
-    await db.execute('''
-      CREATE TABLE attendance_log(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        staff_id TEXT,
-        staff_name TEXT,
-        hall_no TEXT,
-        timestamp TEXT
-      )
-    ''');
+    await db.execute('CREATE TABLE master_staff(staff_id TEXT PRIMARY KEY, staff_name TEXT)');
+    await db.execute('CREATE TABLE daily_allotment(id INTEGER PRIMARY KEY, staff_name TEXT, hall_no TEXT, status TEXT DEFAULT "PENDING")');
+    await db.execute('CREATE TABLE attendance_log(id INTEGER PRIMARY KEY, staff_id TEXT, staff_name TEXT, hall_no TEXT, timestamp TEXT, entry_status TEXT)');
+    await db.execute('CREATE TABLE staff_aliases(master_name TEXT, alias_name TEXT)');
   }
 
-  // --- CORE LOGIC START ---
+  // --- 1. LATE ENTRY LOGIC ---
+  String _calculateStatus(DateTime dt) {
+    DateTime threshold = DateTime(dt.year, dt.month, dt.day, 7, 50);
+    return dt.isAfter(threshold) ? "LATE ENTRY" : "ON TIME";
+  }
 
-  // 1. THE UNIFIED CHECK
+  // --- 2. ATTENDANCE FUNCTIONS (FIXED CASE SENSITIVITY) ---
+  Future<void> markAttendance(String id, String name, String hall) async {
+    final db = await database;
+    DateTime now = DateTime.now();
+    String status = _calculateStatus(now);
+
+    await db.insert('attendance_log', {
+      'staff_id': id.trim().toUpperCase(), // <--- FIX: Force Uppercase
+      'staff_name': name,
+      'hall_no': hall,
+      'timestamp': now.toString(),
+      'entry_status': status
+    });
+    await db.update('daily_allotment', {'status': 'PRESENT'}, where: 'hall_no = ?', whereArgs: [hall]);
+  }
+
+  Future<void> substituteAndLink(String newId, String newName, String targetHall) async {
+    final db = await database;
+    DateTime now = DateTime.now();
+    String status = _calculateStatus(now);
+    String cleanId = newId.trim().toUpperCase(); // <--- FIX: Force Uppercase
+
+    // Link ID
+    await db.insert('master_staff', {'staff_id': cleanId, 'staff_name': newName}, conflictAlgorithm: ConflictAlgorithm.replace);
+    // Update Schedule
+    await db.update('daily_allotment', {'staff_name': newName, 'status': 'PRESENT'}, where: 'hall_no = ?', whereArgs: [targetHall]);
+    // Log Attendance
+    await db.insert('attendance_log', {
+      'staff_id': cleanId,
+      'staff_name': newName,
+      'hall_no': targetHall,
+      'timestamp': now.toString(),
+      'entry_status': status
+    });
+  }
+
+  // --- 3. LOOKUP & ALIAS LOGIC ---
+  Future<void> addAlias(String masterName, String scheduleName) async {
+    final db = await database;
+    var exist = await db.query('staff_aliases', where: 'master_name = ? AND alias_name = ?', whereArgs: [masterName, scheduleName]);
+    if (exist.isEmpty) {
+      await db.insert('staff_aliases', {'master_name': masterName, 'alias_name': scheduleName});
+    }
+  }
+
   Future<Map<String, dynamic>?> checkStaffStatus(String scannedId) async {
     final db = await database;
     String cleanId = scannedId.trim().toUpperCase();
 
-    // PRIORITY 1: Check Logs (Has this person ALREADY scanned or been swapped in?)
-    List<Map<String, dynamic>> logResult = await db.query(
-        'attendance_log',
-        where: 'staff_id = ?',
-        whereArgs: [cleanId],
-        orderBy: 'id DESC', // Get most recent
-        limit: 1
-    );
+    // Check Logs (Using cleanId ensures we match the uppercase saved in DB)
+    var log = await db.query('attendance_log', where: 'staff_id = ?', whereArgs: [cleanId], limit: 1);
+    if (log.isNotEmpty) return {'type': 'LOGGED', 'staff_name': log.first['staff_name'], 'hall_no': log.first['hall_no']};
 
-    if (logResult.isNotEmpty) {
-      return {
-        'type': 'LOGGED', // Flag: Already processed
-        'staff_name': logResult.first['staff_name'],
-        'hall_no': logResult.first['hall_no'],
-      };
+    // Check Master List
+    var master = await db.query('master_staff', where: 'staff_id = ?', whereArgs: [cleanId]);
+    if (master.isNotEmpty) {
+      String name = master.first['staff_name'].toString();
+      var schedule = await _findScheduleSmart(name);
+
+      if (schedule != null) {
+        return {'type': 'SCHEDULED', 'staff_name': schedule['staff_name'], 'hall_no': schedule['hall_no']};
+      }
+      return {'type': 'NOT_ALLOTTED', 'staff_name': name};
     }
+    return {'type': 'UNKNOWN_ID', 'id': cleanId};
+  }
 
-    // PRIORITY 2: Check Schedule (Is this a normal first-time scan?)
-    List<Map<String, dynamic>> scheduleResult = await db.query(
-        'daily_allotment',
-        where: 'staff_id = ?',
-        whereArgs: [cleanId]
-    );
-
-    if (scheduleResult.isNotEmpty) {
-      return {
-        'type': 'SCHEDULED', // Flag: Needs to be marked present
-        'staff_name': scheduleResult.first['staff_name'],
-        'hall_no': scheduleResult.first['hall_no'],
-        'status': scheduleResult.first['status']
-      };
+  Future<Map<String, dynamic>?> _findScheduleSmart(String targetName) async {
+    final db = await database;
+    // 1. Check Aliases
+    var aliases = await db.query('staff_aliases', columns: ['alias_name'], where: 'master_name = ?', whereArgs: [targetName]);
+    for (var aliasRow in aliases) {
+      String knownAlias = aliasRow['alias_name'].toString();
+      var match = await db.query('daily_allotment', where: 'staff_name = ?', whereArgs: [knownAlias], limit: 1);
+      if (match.isNotEmpty) return match.first;
     }
-
-    // PRIORITY 3: Not found (Trigger Substitution)
+    // 2. Fuzzy Match
+    var allRows = await db.query('daily_allotment');
+    List<String> targetTokens = _tokenize(targetName);
+    for (var row in allRows) {
+      if (_isFuzzyMatch(targetTokens, _tokenize(row['staff_name'].toString()))) return row;
+    }
     return null;
   }
 
-  // 2. Mark Attendance for Normal Schedule
-  Future<void> markAttendance(String id, String name, String hall) async {
-    final db = await database;
-
-    // Add to log
-    await db.insert('attendance_log', {
-      'staff_id': id,
-      'staff_name': name,
-      'hall_no': hall,
-      'timestamp': DateTime.now().toString(),
-    });
-
-    // Update Schedule status
-    await db.update(
-        'daily_allotment',
-        {'status': 'PRESENT'},
-        where: 'staff_id = ? AND hall_no = ?',
-        whereArgs: [id, hall]
-    );
+  // --- 4. HELPERS ---
+  List<String> _tokenize(String name) {
+    String clean = name.toLowerCase().replaceAll(RegExp(r'\b(dr|mr|ms|mrs|prof|er|ar)\b\.?'), '').replaceAll(RegExp(r'[^a-z\s]'), ' ').trim();
+    return clean.split(RegExp(r'\s+')).where((s) => s.isNotEmpty).toList();
   }
 
-  // 3. Mark Substitution (The Swap Logic)
-  Future<void> markSubstitution(String newId, String newName, String hallNo) async {
-    final db = await database;
-
-    // A. Log the NEW person (So next scan finds them in Priority 1)
-    await db.insert('attendance_log', {
-      'staff_id': newId.trim().toUpperCase(),
-      'staff_name': newName.trim(),
-      'hall_no': hallNo,
-      'timestamp': DateTime.now().toString(),
-    });
-
-    // B. Mark the Hall as Filled in the Schedule
-    // We update by Hall No because the ID associated with this hall was the OLD person
-    await db.update(
-        'daily_allotment',
-        {'status': 'PRESENT'},
-        where: 'hall_no = ?',
-        whereArgs: [hallNo]
-    );
+  bool _isFuzzyMatch(List<String> tokensA, List<String> tokensB) {
+    if (tokensA.isEmpty || tokensB.isEmpty) return false;
+    var setA = tokensA.toSet();
+    var setB = tokensB.toSet();
+    int matches = setA.intersection(setB).length;
+    if (matches >= 2) return true;
+    if (matches == 1) {
+      String match = setA.intersection(setB).first;
+      if (match.length > 3) return true;
+    }
+    return false;
   }
 
-  // --- HELPER GETTERS ---
-
-  Future<List<Map<String, dynamic>>> getPendingHalls() async {
-    final db = await database;
-    return await db.query(
-        'daily_allotment',
-        columns: ['hall_no', 'staff_name'],
-        where: 'status = ?',
-        whereArgs: ['PENDING']
-    );
+  Future<void> _seedDatabaseIfEmpty(Database db) async {
+    var count = Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM master_staff'));
+    if (count == 0) {
+      try {
+        ByteData data = await rootBundle.load("assets/finale.xlsx");
+        var bytes = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+        var decoder = SpreadsheetDecoder.decodeBytes(bytes);
+        Batch batch = db.batch();
+        for (var table in decoder.tables.keys) {
+          var sheet = decoder.tables[table]!;
+          int nameCol = -1;
+          int idCol = -1;
+          for (int i = 0; i < (sheet.rows.length < 10 ? sheet.rows.length : 10); i++) {
+            var row = sheet.rows[i];
+            for (int j = 0; j < row.length; j++) {
+              String cell = row[j]?.toString().toLowerCase() ?? "";
+              if (cell.contains("name") || cell.contains("faculty")) nameCol = j;
+              if (cell.contains("id") || cell.contains("emp")) idCol = j;
+            }
+            if (nameCol != -1) break;
+          }
+          if (nameCol == -1) nameCol = 1;
+          for (int i = 1; i < sheet.rows.length; i++) {
+            var row = sheet.rows[i];
+            if (row.length <= nameCol) continue;
+            String name = row[nameCol]?.toString().trim() ?? "";
+            if (name.isEmpty || name.toLowerCase() == "null") continue;
+            String finalId = "";
+            if (idCol != -1 && row.length > idCol && row[idCol] != null) finalId = row[idCol].toString().trim().toUpperCase();
+            if (finalId.isEmpty || (int.tryParse(finalId) != null && finalId.length < 4)) finalId = "TEMP_" + name.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
+            batch.insert('master_staff', {'staff_id': finalId, 'staff_name': name}, conflictAlgorithm: ConflictAlgorithm.ignore);
+          }
+        }
+        await batch.commit(noResult: true);
+      } catch (e) {}
+    }
   }
 
-  Future<void> insertDailyAllotment(String id, String name, String hall) async {
+  // --- MISSING METHOD RESTORED ---
+  Future<List<String>> getAllAvailableNames() async {
     final db = await database;
-    await db.insert('daily_allotment', {
-      'staff_id': id.trim().toUpperCase(),
-      'staff_name': name.trim(),
-      'hall_no': hall,
-      'status': 'PENDING'
-    });
+    var schedule = await db.query('daily_allotment', columns: ['staff_name']);
+    var master = await db.query('master_staff', columns: ['staff_name']);
+    Set<String> names = {};
+    for (var row in schedule) names.add(row['staff_name'].toString());
+    for (var row in master) names.add(row['staff_name'].toString());
+    return names.toList()..sort();
   }
 
-  Future<List<Map<String, dynamic>>> getAllLogs() async {
-    final db = await database;
-    // Order by timestamp so the CSV is chronological
-    return await db.query('attendance_log', orderBy: 'timestamp ASC');
-  }
+  // Basic DB operations
+  Future<void> linkStaff(String id, String name) async => (await database).insert('master_staff', {'staff_id': id.toUpperCase(), 'staff_name': name}, conflictAlgorithm: ConflictAlgorithm.replace);
+  Future<void> clearMasterList() async => (await database).delete('master_staff');
+  Future<void> clearDailySchedule() async => (await database).delete('daily_allotment');
+  Future<void> insertMasterStaff(String id, String name) async => (await database).insert('master_staff', {'staff_id': id.toUpperCase(), 'staff_name': name});
+  Future<void> insertDailyAllotment(String name, String hall) async => (await database).insert('daily_allotment', {'staff_name': name, 'hall_no': hall});
+  Future<int> getPendingCount() async => Sqflite.firstIntValue(await (await database).rawQuery('SELECT COUNT(*) FROM daily_allotment')) ?? 0;
+  Future<List<Map<String, dynamic>>> getPendingHalls() async => (await database).query('daily_allotment', where: 'status = ?', whereArgs: ['PENDING']);
+  Future<List<Map<String, dynamic>>> getAllLogs() async => (await database).query('attendance_log');
 
+  // RESET LOGIC
   Future<void> resetDatabase() async {
     final db = await database;
     await db.delete('daily_allotment');
     await db.delete('attendance_log');
-  }
-
-  Future<int> getPendingCount() async {
-    final db = await database;
-    var x = await db.rawQuery('SELECT COUNT(*) FROM daily_allotment');
-    return Sqflite.firstIntValue(x) ?? 0;
   }
 }

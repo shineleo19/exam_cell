@@ -4,35 +4,35 @@ publish_to: 'none'
 version: 1.0.0+1
 
 environment:
-  sdk: ^3.0.0
+  sdk: '>=3.0.0 <4.0.0'
 
 dependencies:
   flutter:
     sdk: flutter
 
-  # Utilities
-  permission_handler: ^11.3.0
-  path_provider: ^2.1.2
-  file_picker: ^8.0.0
-  excel: ^4.0.0
-
   # Database
   sqflite: ^2.3.2
+  sqflite_common_ffi: ^2.3.2
+  path_provider: ^2.1.2
   path: ^1.9.0
-  sqflite_common_ffi: ^2.3.2 # Critical for Windows DB
 
-  # Scanner (Mobile Only)
-  mobile_scanner: ^5.0.0
+  # File Handling (UPDATED to fix warnings)
+  file_picker: ^8.0.0
+  spreadsheet_decoder: ^2.1.1
 
-  # Icons
-  cupertino_icons: ^1.0.8
+  # Permissions & Camera
+  permission_handler: ^11.3.0
+  mobile_scanner: ^5.1.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
+  # Icon Generator (Optional but recommended for your launcher icon)
+  flutter_launcher_icons: ^0.13.1
 
 flutter:
   uses-material-design: true
   assets:
     - assets/logo.jpeg
+    - assets/finale.xlsx

@@ -35,7 +35,7 @@ class _AdminAppState extends State<AdminApp> {
       await [
         Permission.camera,
         Permission.storage,
-        Permission.manageExternalStorage,
+        Permission.manageExternalStorage, // Critical for CSV Export on Android 11+
       ].request();
     }
   }
@@ -46,8 +46,9 @@ class _AdminAppState extends State<AdminApp> {
       debugShowCheckedModeBanner: false,
       title: 'Exam Controller',
       theme: ThemeData(
-        primarySwatch: Colors.indigo,
-        useMaterial3: false,
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
+        useMaterial3: true, // CHANGED: Enabled Material 3 for better UI
+        visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
       home: DashboardScreen(),
     );
